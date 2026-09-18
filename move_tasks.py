@@ -56,24 +56,26 @@ schedule_end_target = """                          </button>
                       </div>
               </div>"""
 
-new_schedule_panel = f"""              <div className="flex-1 flex flex-col overflow-hidden">
+tasks_injected = tasks_target.replace("rightSidebarTab === 'checklist'", "true")
+
+new_schedule_panel = """              <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-8">
-                  {{scheduleTab === 'schedule' && (
+                  {scheduleTab === 'schedule' && (
                     <div className="flex flex-col gap-6 animate-in fade-in duration-100">"""
 
-new_schedule_panel_end = f"""                          </button>
+new_schedule_panel_end = """                          </button>
                         </div>
                     </div>
-                  )}}
-                  {{scheduleTab === 'tasks' && (
+                  )}
+                  {scheduleTab === 'tasks' && (
                     <div className="animate-in fade-in duration-100">
-{tasks_target.replace("rightSidebarTab === 'checklist'", "true")}
+""" + tasks_injected + """
                     </div>
-                  )}}
+                  )}
                 </div>
                 <div className="flex border-t border-black dark:border-white text-xs items-center shrink-0 mt-auto bg-white dark:bg-black">
-                  <button onClick={() => setScheduleTab('schedule')} className={`flex-1 py-4 uppercase tracking-widest font-mono text-[11px] font-bold transition-all duration-100 border-t-2 ${{scheduleTab === 'schedule' ? 'text-black dark:text-white border-black dark:border-white bg-zinc-100 dark:bg-zinc-900' : 'text-zinc-500 dark:text-zinc-400 border-transparent hover:text-black dark:hover:text-white hover:bg-zinc-50 dark:hover:bg-zinc-900'}}`}>Schedule</button>
-                  <button onClick={() => setScheduleTab('tasks')} className={`flex-1 py-4 uppercase tracking-widest font-mono text-[11px] font-bold transition-all duration-100 border-t-2 ${{scheduleTab === 'tasks' ? 'text-black dark:text-white border-black dark:border-white bg-zinc-100 dark:bg-zinc-900' : 'text-zinc-500 dark:text-zinc-400 border-transparent hover:text-black dark:hover:text-white hover:bg-zinc-50 dark:hover:bg-zinc-900'}}`}>Tasks</button>
+                  <button onClick={() => setScheduleTab('schedule')} className={`flex-1 py-4 uppercase tracking-widest font-mono text-[11px] font-bold transition-all duration-100 border-t-2 ${scheduleTab === 'schedule' ? 'text-black dark:text-white border-black dark:border-white bg-zinc-100 dark:bg-zinc-900' : 'text-zinc-500 dark:text-zinc-400 border-transparent hover:text-black dark:hover:text-white hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}>Schedule</button>
+                  <button onClick={() => setScheduleTab('tasks')} className={`flex-1 py-4 uppercase tracking-widest font-mono text-[11px] font-bold transition-all duration-100 border-t-2 ${scheduleTab === 'tasks' ? 'text-black dark:text-white border-black dark:border-white bg-zinc-100 dark:bg-zinc-900' : 'text-zinc-500 dark:text-zinc-400 border-transparent hover:text-black dark:hover:text-white hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}>Tasks</button>
                 </div>
               </div>"""
 

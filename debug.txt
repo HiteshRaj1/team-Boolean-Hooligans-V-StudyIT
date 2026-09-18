@@ -1,0 +1,151 @@
+                >
+                  <Brain className="w-4 h-4" /> Flashcards
+                </button>
+              </div>
+
+              {centerTab === 'chat' ? (
+                <>
+                  <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                    {activeMessages.length === 0 ? (
+                      <div className="text-[11px] font-mono font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">No messages yet.</div>
+                    ) : (
+                      activeMessages.map(msg => (
+                        <div key={msg.id} className="flex gap-6 max-w-2xl border-b border-zinc-200 dark:border-zinc-800 pb-8 last:border-0">
+                          <div className="w-6 h-6 mt-1 border-2 border-black dark:border-white flex items-center justify-center shrink-0 font-bold font-mono text-[10px] text-black dark:text-white uppercase">{msg.role === 'user' ? 'U' : 'A'}</div>
+                          <div className="space-y-4 w-full">
+                            <div className={`text-base leading-relaxed ${msg.role === 'user' ? 'font-serif font-bold text-black dark:text-white' : 'font-serif text-black dark:text-white'}`}>{msg.content}</div>
+                            {msg.citations && msg.citations.length > 0 && (
+                              <div className="flex flex-wrap gap-2 text-xs mt-4">
+                                {msg.citations.map((c, i) => (
+                                  <button 
+                                    key={i} 
+                                    onClick={() => setActiveCitation(c)}
+                                    className={`flex items-center gap-1 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest font-bold border-2 transition-colors duration-100 ${c.examContext ? 'bg-white dark:bg-black border-rose-600 text-rose-600 hover:bg-rose-600 hover:text-white dark:hover:text-black' : 'bg-white dark:bg-black border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}
+                                  >
+                                    {c.documentName} {c.pageOrSlide && `(p.${c.pageOrSlide})`}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+
+                  <div className="p-8 border-t border-black dark:border-white shrink-0 bg-white dark:bg-black">
+                    <form onSubmit={handleSendMessage} className="relative max-w-2xl">
+                      <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Type a message..." className="w-full bg-transparent border-b-2 border-black dark:border-white text-base font-serif text-black dark:text-white placeholder:italic placeholder-zinc-500 dark:placeholder-zinc-400 py-3 focus:outline-none focus:border-b-4 transition-all duration-100" />
+                    </form>
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-8 bg-white dark:bg-black">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-3">
+                      <span className="px-2.5 py-1 bg-black dark:bg-white text-white dark:text-black font-mono text-[10px] font-bold uppercase tracking-widest">{activeCourse.code}</span>
+                      <span className="text-[10px] font-mono text-black dark:text-white uppercase tracking-widest font-bold px-3 py-1 border border-black dark:border-white">
+                        {predictedQuestions.length} Predicted High-Yield Questions
+                      </span>
+                    </div>
+                    <div className="flex items-center font-mono text-[10px] font-bold uppercase tracking-widest gap-0">
+                      {(['All', '5 Marks', '10 Marks'] as const).map((filter, i) => (
+                        <button 
+                          key={filter}
+                          onClick={() => setQuestionFilter(filter)}
+                          className={`w-24 shrink-0 text-center px-3 py-1.5 border border-black dark:border-white transition-colors duration-100 ${i !== 0 ? '-ml-[1px]' : ''} ${questionFilter === filter ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}
+                        >
+                          {filter}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {predictedQuestions.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-center">
+                      <FileSpreadsheet className="w-12 h-12 text-zinc-300 dark:text-zinc-800 mb-4" />
+                      <p className="text-zinc-500 dark:text-zinc-400 font-serif text-sm max-w-sm">Upload course materials or lecture slides to generate predicted exam questions.</p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-6">
+                      {predictedQuestions
+                        .filter(q => questionFilter === 'All' || (questionFilter === '5 Marks' && q.marks === 5) || (questionFilter === '10 Marks' && q.marks === 10))
+                        .filter(q => !isCramMode || q.tag.includes('FAT Recurring') || q.marks >= 10 || q.difficulty === 'High Yield')
+                        .map(q => (
+                        <div key={q.id} className="bg-white dark:bg-black border-2 border-black dark:border-white p-8 flex flex-col gap-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-3">
+                              <button onClick={(e) => toggleQuestionReviewed(e, q.id)} className={`w-5 h-5 flex items-center justify-center shrink-0 border-2 transition-colors duration-100 ${q.isReviewed ? 'bg-black dark:bg-white border-black dark:border-white text-white dark:text-black' : 'bg-white dark:bg-black border-black dark:border-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="px-2.5 py-1 border border-black dark:border-white text-black dark:text-white text-[10px] font-mono font-bold uppercase tracking-widest">{q.tag}</span>
+                              <span className={`px-2.5 py-1 border border-black dark:border-white text-[10px] font-mono font-bold uppercase tracking-widest ${q.marks >= 10 ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white'}`}>{q.marks} Marks</span>
+                              <span className="text-xs text-black dark:text-white">•</span>
+                              <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-black dark:text-white">{q.difficulty}</span>
+                            </div>
+                            {q.sourceCitationData && (
+                              <button 
+                                onClick={() => setActiveCitation(q.sourceCitationData!)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 border border-black dark:border-white text-[10px] font-mono font-bold tracking-widest uppercase text-black dark:text-white hover:text-white dark:hover:text-black hover:bg-black dark:hover:bg-white transition-colors duration-100"
+                              >
+                                <BookOpen className="w-3 h-3" />
+                                {q.sourceText}
+                              </button>
+                            )}
+                          </div>
+                          
+                          <h3 className="text-xl font-serif font-bold text-black dark:text-white leading-relaxed mt-2">{q.question}</h3>
+                          
+                          <div className="mt-4 border-t border-black dark:border-white pt-4">
+                            <button 
+                              onClick={() => setExpandedQuestionId(expandedQuestionId === q.id ? null : q.id)}
+                              className="flex items-center gap-2 text-[10px] font-mono font-bold tracking-widest uppercase text-black dark:text-white hover:text-zinc-500 dark:hover:text-zinc-400 transition-colors focus:outline-none"
+                            >
+                              <ChevronDown className={`w-4 h-4 transition-transform ${expandedQuestionId === q.id ? 'rotate-180' : ''}`} />
+                              Reveal Ideal Answer & Marking Scheme
+                            </button>
+                            
+                            {expandedQuestionId === q.id && (
+                              <div className="mt-8 space-y-8 animate-in fade-in duration-100">
+                                <div>
+                                  <h4 className="text-[10px] font-mono font-bold text-black dark:text-white uppercase tracking-widest mb-4">Point Distribution</h4>
+                                  <ul className="space-y-3">
+                                    {q.pointDistribution.map((pt, i) => (
+                                      <li key={i} className="flex gap-3 text-sm font-serif text-black dark:text-white items-start">
+                                        <div className="w-1.5 h-1.5 mt-2 border border-black dark:border-white bg-black dark:bg-white shrink-0" />
+                                        <span className="leading-relaxed">{pt}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                
+                                <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800">
+                                  <button 
+                                    onClick={() => {
+                                      setCenterTab('chat');
+                                      setChatInput(`Let's practice answering: ${q.question}`);
+                                      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+                                    }}
+                                    className="flex items-center gap-2 px-6 py-3 border-2 border-black dark:border-white bg-white dark:bg-black text-black dark:text-white font-mono font-bold text-[10px] tracking-widest uppercase hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100"
+                                  >
+                                    <MessageSquare className="w-4 h-4" />
+                                    Practice This in Copilot
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {centerTab === 'flashcards' && (
+                <div className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 p-8">
+                  <FlashcardDeck deckName={`${activeCourse.code} High-Yield Flashcards`} cards={MOCK_FLASHCARDS[activeCourse.id] || []} />
+                </div>
+              )}
+            </>
+          )}

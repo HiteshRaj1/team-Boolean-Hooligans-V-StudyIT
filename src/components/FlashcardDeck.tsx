@@ -23,8 +23,9 @@ export default function FlashcardDeck({ deckName, cards }: FlashcardDeckProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const [reviewedCount, setReviewedCount] = useState(0);
   
-  const filteredCards = cards.filter(c => filterCategory === "All" || c.category === filterCategory);
-  const activeCard = filteredCards[currentIndex];
+  const filteredCards = cards.filter(c => filterCategory === "All" || (c.category && c.category.toLowerCase() === filterCategory.toLowerCase()));
+  const safeIndex = filteredCards.length > 0 ? Math.min(currentIndex, filteredCards.length - 1) : 0;
+  const activeCard = filteredCards[safeIndex];
 
   const handleNext = useCallback(() => {
     setIsFlipped(false);
@@ -49,6 +50,12 @@ export default function FlashcardDeck({ deckName, cards }: FlashcardDeckProps) {
     setReviewedCount(prev => prev + 1);
     handleNext();
   }, [handleNext]);
+
+  useEffect(() => {
+    if (currentIndex >= filteredCards.length && filteredCards.length > 0) {
+      setCurrentIndex(filteredCards.length - 1);
+    }
+  }, [filteredCards.length, currentIndex]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -81,25 +88,31 @@ export default function FlashcardDeck({ deckName, cards }: FlashcardDeckProps) {
   return (
     <div className="flex flex-col gap-6 w-full max-w-2xl mx-auto p-4 animate-in fade-in duration-100">
       
-      <div className="flex items-center justify-between border-b-2 border-black dark:border-white pb-6">
+      <div className="flex items-center justify-between border-b-2 border-black dark:border-white pb-6 flex-wrap gap-4">
         <div>
           <h2 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight">{deckName}</h2>
           <div className="text-xs font-mono tracking-widest uppercase mt-2 text-zinc-500 dark:text-zinc-400">
-            {reviewedCount} Cards Reviewed
+            {reviewedCount} Cards Reviewed • {cards.length} Total Cards
           </div>
         </div>
-        <div className="flex items-center gap-0">
-          {(["All", "Formula", "Definition", "Concept", "Trap"] as FilterType[]).map((filter, i) => (
-            <button
-              key={filter}
-              onClick={() => setFilterCategory(filter)}
-              className={`w-20 shrink-0 text-center px-2 py-1.5 border border-black dark:border-white text-[10px] font-mono font-bold tracking-widest uppercase transition-colors duration-100 ${i !== 0 ? '-ml-[1px]' : ''} ${filterCategory === filter ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}
-            >
-              {filter}
-            </button>
-          ))}
+        <div className="flex items-center gap-0 flex-wrap">
+          {(["All", "Formula", "Definition", "Concept", "Trap"] as FilterType[]).map((filter, i) => {
+            const count = filter === "All" 
+              ? cards.length 
+              : cards.filter(c => c.category && c.category.toLowerCase() === filter.toLowerCase()).length;
+            return (
+              <button
+                key={filter}
+                onClick={() => setFilterCategory(filter)}
+                className={`text-center px-3 py-1.5 border border-black dark:border-white text-[10px] font-mono font-bold tracking-widest uppercase transition-colors duration-100 ${i !== 0 ? '-ml-[1px]' : ''} ${filterCategory === filter ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}
+              >
+                {filter} <span className="opacity-60 text-[9px] font-normal">[{count}]</span>
+              </button>
+            );
+          })}
         </div>
       </div>
+
 
       {!activeCard ? (
         <div className="p-12 border-2 border-black dark:border-white text-center text-zinc-500 dark:text-zinc-400 font-mono text-xs uppercase tracking-widest">
@@ -114,10 +127,10 @@ export default function FlashcardDeck({ deckName, cards }: FlashcardDeckProps) {
             {/* Header */}
             <div className="flex justify-between items-center w-full">
               <span className="font-mono text-xs font-bold uppercase tracking-widest px-2 py-1 bg-black dark:bg-white text-white dark:text-black">
-                [{activeCard.category}]
+                [{activeCard.category || 'Concept'}]
               </span>
               <span className="font-mono text-xs font-bold tracking-widest">
-                {(currentIndex + 1).toString().padStart(2, '0')} / {filteredCards.length.toString().padStart(2, '0')}
+                {(safeIndex + 1).toString().padStart(2, '0')} / {filteredCards.length.toString().padStart(2, '0')}
               </span>
             </div>
 
@@ -155,7 +168,7 @@ export default function FlashcardDeck({ deckName, cards }: FlashcardDeckProps) {
               ) : (
                 <div className="w-full flex justify-between items-center">
                   <span className="font-mono text-[10px] tracking-widest uppercase text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
-                    Source: <span className="text-black dark:text-white bg-zinc-100 dark:bg-zinc-900 px-1 py-0.5 border border-zinc-200 dark:border-zinc-800">{activeCard.sourceCitation}</span>
+                    Source: <span className="text-black dark:text-white bg-zinc-100 dark:bg-zinc-900 px-1 py-0.5 border border-zinc-200 dark:border-zinc-800">{activeCard.sourceCitation || 'AI Generated'}</span>
                   </span>
                   
                   <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
@@ -175,10 +188,32 @@ export default function FlashcardDeck({ deckName, cards }: FlashcardDeckProps) {
           </div>
           
           <div className="flex items-center justify-between mt-2">
-             <button onClick={handlePrev} disabled={currentIndex === 0} className="p-2 border border-black dark:border-white text-black dark:text-white disabled:opacity-30 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">
+             <button 
+                onClick={handlePrev} 
+                disabled={safeIndex === 0} 
+                aria-label="Previous"
+                title="Previous Flashcard"
+                className="flex items-center gap-2 px-4 py-2 border border-black dark:border-white text-black dark:text-white disabled:opacity-30 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 font-mono text-xs uppercase tracking-widest font-bold"
+             >
                 <ArrowLeft className="w-4 h-4" />
+                <span>Previous</span>
              </button>
-             <button onClick={handleNext} disabled={currentIndex === filteredCards.length - 1} className="p-2 border border-black dark:border-white text-black dark:text-white disabled:opacity-30 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">
+             <button 
+                onClick={handleFlip}
+                aria-label="Flip"
+                title="Flip Flashcard"
+                className="px-4 py-2 border border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 font-mono text-xs uppercase tracking-widest font-bold"
+             >
+                {isFlipped ? "Flip to Front" : "Flip to Back"}
+             </button>
+             <button 
+                onClick={handleNext} 
+                disabled={safeIndex >= filteredCards.length - 1} 
+                aria-label="Next"
+                title="Next Flashcard"
+                className="flex items-center gap-2 px-4 py-2 border border-black dark:border-white text-black dark:text-white disabled:opacity-30 hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 font-mono text-xs uppercase tracking-widest font-bold"
+             >
+                <span>Next</span>
                 <ArrowRight className="w-4 h-4" />
              </button>
           </div>

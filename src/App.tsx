@@ -2,12 +2,17 @@ import { useState, useEffect, useRef, FormEvent } from 'react';
 import { 
   Play, Pause, RotateCcw, SkipForward, Settings, 
   Check, Plus, Trash2, X, ChevronDown,
-  Timer, Calendar, MessageSquare, Target, Brain, BookOpen, FileSpreadsheet
+  Timer, Calendar, MessageSquare, Target, Brain, BookOpen, FileSpreadsheet,
+  PanelLeftClose, PanelLeftOpen, Clock, MapPin, Layers, Edit3
 } from 'lucide-react';
+
 import UploadModal, { UploadedFile } from './components/UploadModal';
 import CitationDrawer, { CitationData } from './components/CitationDrawer';
 import AudioPlayer from './components/AudioPlayer';
 import FlashcardDeck, { Flashcard } from './components/FlashcardDeck';
+import MinimalCalendar from './components/MinimalCalendar';
+import DocumentSummarizer from './components/DocumentSummarizer';
+
 
 const MOCK_FLASHCARDS: Record<string, Flashcard[]> = {
   'c1': [
@@ -77,10 +82,24 @@ interface Course {
   id: string;
   code: string;
   title: string;
+  timings?: string;
+  slot?: string;
+  roomNumber?: string;
+  color?: string;
 }
 
+const COURSE_COLOR_PALETTE = [
+  { id: 'monochrome', name: 'Monochrome', hex: '#000000', darkHex: '#FFFFFF' },
+  { id: 'emerald', name: 'Emerald', hex: '#10B981', darkHex: '#34D399' },
+  { id: 'blue', name: 'Cobalt', hex: '#2563EB', darkHex: '#60A5FA' },
+  { id: 'purple', name: 'Amethyst', hex: '#8B5CF6', darkHex: '#A78BFA' },
+  { id: 'rose', name: 'Crimson', hex: '#E11D48', darkHex: '#FB7185' },
+  { id: 'amber', name: 'Amber', hex: '#D97706', darkHex: '#FBBF24' },
+  { id: 'cyan', name: 'Cyan', hex: '#0891B2', darkHex: '#22D3EE' }
+];
+
 interface Message {
-  id: string;
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   citations?: CitationData[];
@@ -103,7 +122,13 @@ interface ExamEvent {
   status: 'PENDING' | 'DONE';
 }
 
-
+interface CustomEvent {
+  id: string;
+  courseId: string;
+  title: string;
+  date: string;
+  time?: string;
+}
 interface ExamQuestion {
   id: string;
   courseId: string;
@@ -127,33 +152,48 @@ interface CourseExams {
 
 // --- Main Component ---
 export default function App() {
-  const [courses, setCourses] = useState<Course[]>([
-    { id: 'c1', code: 'CS101', title: 'Intro to Computer Science' }
-  ]);
+  const [courses, setCourses] = useState<Course[]>(() => {
+    const saved = localStorage.getItem('vstudyit_courses');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return [
+      { id: 'c1', code: 'CS101', title: 'Intro to Computer Science', slot: 'E2 + TE2', timings: '08:00 - 08:50', roomNumber: 'SJT 412' }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('vstudyit_courses', JSON.stringify(courses));
+  }, [courses]);
+
   const [activeCourseId, setActiveCourseId] = useState<string | null>('c1');
   const [isAddingCourse, setIsAddingCourse] = useState(false);
   const [isCourseDropdownOpen, setIsCourseDropdownOpen] = useState(false);
   const [newCourseCode, setNewCourseCode] = useState('');
   const [newCourseTitle, setNewCourseTitle] = useState('');
+  const [newCourseSlot, setNewCourseSlot] = useState('');
+  const [newCourseTimings, setNewCourseTimings] = useState('');
+  const [newCourseRoom, setNewCourseRoom] = useState('');
+  const [newCourseColor, setNewCourseColor] = useState('#2563EB');
+
+  // Course Edit Modal State
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [activeCitation, setActiveCitation] = useState<CitationData | null>(null);
   const [courseFiles, setCourseFiles] = useState<Record<string, UploadedFile[]>>({});
 
   const [studyMode, setStudyMode] = useState<StudyMode>('deep');
-  const [messages, setMessages] = useState<Record<string, Message[]>>({
-    'c1': [
-      {
-        id: 'm1',
-        role: 'assistant',
-        content: 'Welcome to CS101. How can I help you study today?',
-        citations: []
-      }
-    ]
-  });
-  const [chatInput, setChatInput] = useState('');
+  // 1. State setup
+  const [messages, setMessages] = useState<Message[]>([
+    { role: "assistant", content: "System ready. How can I help?" }
+  ]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  // Compatibility aliases
+  const setChatInput = (val: string) => setInput(val);
+  const chatEndRef = bottomRef;
 
   const [settings, setSettings] = useState<TimerSettings>({
     work: 25,
@@ -172,16 +212,21 @@ export default function App() {
     { id: 't1', courseId: 'c1', title: 'Read Chapter 1', completed: false, pomodorosCompleted: 0 }
   ]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [rightPanelMode, setRightPanelMode] = useState<'timerAndTasks' | 'schedule'>('timerAndTasks');
+  const [rightPanelMode, setRightPanelMode] = useState<'timerAndTasks' | 'schedule' | 'calendar'>('timerAndTasks');
   const [rightSidebarTab, setRightSidebarTab] = useState<'materials'>('materials');
   const [scheduleTab, setScheduleTab] = useState<'schedule' | 'tasks'>('schedule');
   const [isTimerOpen, setIsTimerOpen] = useState(true);
   const [isTasksOpen, setIsTasksOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState(false);
 
-  const [centerTab, setCenterTab] = useState<'chat' | 'practice' | 'flashcards'>('chat');
+  const [centerTab, setCenterTab] = useState<'chat' | 'practice' | 'flashcards' | 'summary'>('chat');
+  const [flashcards, setFlashcards] = useState<Flashcard[]>(() => MOCK_FLASHCARDS['c1'] || []);
+
+  const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
   const [questionFilter, setQuestionFilter] = useState<'All' | '5 Marks' | '10 Marks'>('All');
   const [expandedQuestionId, setExpandedQuestionId] = useState<string | null>(null);
+
 
   const [isCramMode, setIsCramMode] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -205,6 +250,10 @@ export default function App() {
   });
   const [isEditingExam, setIsEditingExam] = useState(false);
   const [editExams, setEditExams] = useState<CourseExams>({ quiz: null, cat1: null, cat2: null, fat: null });
+  const [customEvents, setCustomEvents] = useState<CustomEvent[]>([]);
+  const [addingEventDate, setAddingEventDate] = useState<string | null>(null);
+  const [addingEventTitle, setAddingEventTitle] = useState('');
+  const [addingEventTime, setAddingEventTime] = useState('');
 
   const [predictedQuestions, setPredictedQuestions] = useState<ExamQuestion[]>([
     {
@@ -320,8 +369,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, activeCourseId]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
 
   useEffect(() => {
     if (isRunning) {
@@ -418,48 +467,188 @@ export default function App() {
   const handleAddCourse = (e: FormEvent) => {
     e.preventDefault();
     if (!newCourseCode.trim() || !newCourseTitle.trim()) return;
-    const newCourse = { id: Date.now().toString(), code: newCourseCode.trim(), title: newCourseTitle.trim() };
-    setCourses([...courses, newCourse]);
+    const newCourse: Course = { 
+      id: Date.now().toString(), 
+      code: newCourseCode.trim(), 
+      title: newCourseTitle.trim(),
+      slot: newCourseSlot.trim() || undefined,
+      timings: newCourseTimings.trim() || undefined,
+      roomNumber: newCourseRoom.trim() || undefined,
+      color: newCourseColor || undefined
+    };
+    setCourses(prev => [...prev, newCourse]);
     setActiveCourseId(newCourse.id);
     setIsAddingCourse(false);
     setNewCourseCode('');
     setNewCourseTitle('');
+    setNewCourseSlot('');
+    setNewCourseTimings('');
+    setNewCourseRoom('');
+    setNewCourseColor('#2563EB');
   };
 
-  const handleSendMessage = (e: FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || !activeCourseId) return;
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: chatInput.trim() };
-    setMessages(prev => {
-      const courseMsgs = prev[activeCourseId] || [];
-      return { ...prev, [activeCourseId]: [...courseMsgs, userMsg] };
-    });
-    setChatInput('');
-    setTimeout(() => {
-      const asstMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Acknowledged query regarding ${activeCourseId} for ${studyMode} mode.`,
-        citations: [
-          { 
-            id: 'cit-1', documentName: 'Lecture 4 - OS Intro', pageOrSlide: 12, 
-            excerpt: 'The operating system serves as a resource allocator and control program.', 
-            keyTopics: ['OS Basics', 'Resource Allocator']
-          },
-          { 
-            id: 'cit-2', documentName: 'Midterm 2023', pageOrSlide: 4, 
-            examContext: 'Matched Fall 2023 Q2(b) (10 Marks)',
-            excerpt: 'Explain the dual-mode operation of an operating system.', 
-            keyTopics: ['Dual-mode', 'Protection']
-          }
-        ]
-      };
-      setMessages(prev => {
-        const courseMsgs = prev[activeCourseId] || [];
-        return { ...prev, [activeCourseId]: [...courseMsgs, asstMsg] };
-      });
-    }, 1000);
+  const handleUpdateCourse = (updated: Course) => {
+    setCourses(prev => prev.map(c => c.id === updated.id ? updated : c));
+    setEditingCourse(null);
   };
+
+  const handleGenerateFlashcards = async (customContext?: string) => {
+    if (isLoading || isGeneratingFlashcards) return;
+
+    let promptContext = (customContext || '').trim();
+    if (!promptContext) {
+      if (input.trim()) {
+        promptContext = input.trim();
+        setInput("");
+      } else {
+        const recentChat = messages
+          .filter(m => m.content && m.content !== "System ready. How can I help?")
+          .slice(-4)
+          .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+          .join('\n');
+        promptContext = recentChat || `${activeCourse?.code || 'CS101'} - ${activeCourse?.title || 'Core Concepts'}`;
+      }
+    }
+
+    const countMatch = promptContext.match(/\b(\d+)\s+flashcards?\b/i);
+    const cardCount = countMatch ? Math.min(Math.max(1, parseInt(countMatch[1], 10)), 10) : 5;
+
+    setIsGeneratingFlashcards(true);
+    setIsLoading(true);
+
+    const userPromptSummary = customContext 
+      ? `Make flashcards from: "${customContext.slice(0, 50)}${customContext.length > 50 ? '...' : ''}"`
+      : (promptContext.length > 60 ? `Make flashcards on current study notes` : `Make flashcards: ${promptContext}`);
+
+    setMessages(prev => [...prev, { role: "user", content: userPromptSummary }]);
+
+    try {
+      const res = await fetch("http://localhost:8000/generate-flashcards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic_or_notes: promptContext,
+          count: cardCount
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server status ${res.status}`);
+      }
+
+      const data = await res.json();
+      const rawCards = Array.isArray(data.flashcards) ? data.flashcards : [];
+
+      if (rawCards.length > 0) {
+        const normalizeCategory = (cat?: string): "Formula" | "Definition" | "Concept" | "Trap" => {
+          if (!cat) return "Concept";
+          const trimmed = String(cat).trim();
+          const cap = trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+          if (cap === "Formula" || cap === "Definition" || cap === "Concept" || cap === "Trap") {
+            return cap as "Formula" | "Definition" | "Concept" | "Trap";
+          }
+          const lower = trimmed.toLowerCase();
+          if (lower.includes("formula") || lower.includes("equation") || lower.includes("calc")) return "Formula";
+          if (lower.includes("definition") || lower.includes("define") || lower.includes("term")) return "Definition";
+          if (lower.includes("trap") || lower.includes("pitfall") || lower.includes("mistake") || lower.includes("trick")) return "Trap";
+          return "Concept";
+        };
+
+        const newCards: Flashcard[] = rawCards.map((c: any, idx: number) => ({
+          id: `card-${Date.now()}-${idx}`,
+          category: normalizeCategory(c.category),
+          question: c.question || "Generated Flashcard",
+          answer: c.answer || "No explanation provided.",
+          keyPoints: Array.isArray(c.keyPoints) && c.keyPoints.length > 0 ? c.keyPoints : undefined,
+          sourceCitation: c.sourceCitation || `${activeCourse?.code || 'AI'} • Notes`
+        }));
+
+        setFlashcards(prev => [...prev, ...newCards]);
+        const categoriesList = Array.from(new Set(newCards.map(c => c.category))).join(', ');
+        setMessages(prev => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Generated ${newCards.length} flashcards categorized into respective sub-tabs (${categoriesList}). Switched to the Flashcards tab so you can view them!`
+          }
+        ]);
+        setCenterTab('flashcards');
+      } else {
+
+        setMessages(prev => [
+          ...prev,
+          { role: "assistant", content: "No flashcards could be generated from the given context." }
+        ]);
+      }
+    } catch (err: any) {
+      setMessages(prev => [
+        ...prev,
+        { role: "assistant", content: `[Error generating flashcards: ${err.message}]` }
+      ]);
+    } finally {
+      setIsGeneratingFlashcards(false);
+      setIsLoading(false);
+    }
+  };
+
+  // 2. Submit handler
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || isLoading || isGeneratingFlashcards) return;
+
+    // Detect requests to generate flashcards (such as 'make flashcards')
+    const isFlashcardRequest = (
+      /(?:make|generate|create|give me|build)\s+(?:\d+\s+)?(?:study\s+)?flashcards?/i.test(text) ||
+      /\bflashcards?\b/i.test(text) && /\b(make|create|generate|give|build|produce)\b/i.test(text)
+    );
+
+    if (isFlashcardRequest) {
+      setInput("");
+      await handleGenerateFlashcards(text);
+      return;
+    }
+
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
+    setInput("");
+    setIsLoading(true);
+
+    try {
+      const activeFiles = courseFiles[activeCourseId || ''] || [];
+      const fileContext = activeFiles
+        .filter(f => f.content)
+        .map(f => `Document [${f.name}]:\n${f.content}`)
+        .join('\n\n');
+
+      const res = await fetch("http://localhost:8000/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          prompt: text,
+          course_id: activeCourseId || "c1",
+          context: fileContext || undefined
+        }),
+      });
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        { 
+          role: "assistant", 
+          content: data.answer || "No response received.",
+          citations: data.citations && data.citations.length > 0 ? data.citations : undefined
+        }
+      ]);
+    } catch (err: any) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `[Error: ${err.message}]` }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
 
   const handleAddTask = (e: FormEvent) => {
     e.preventDefault();
@@ -476,7 +665,6 @@ export default function App() {
 
   const activeCourse = courses.find(c => c.id === activeCourseId);
   const activeCourseTasks = tasks.filter(t => t.courseId === activeCourseId);
-  const activeMessages = activeCourseId ? (messages[activeCourseId] || []) : [];
 
   const activeFilesCount = courseFiles[activeCourseId || '']?.length || 0;
   const tasksCompleted = activeCourseTasks.filter(t => t.completed).length;
@@ -514,73 +702,185 @@ export default function App() {
     <div className="flex h-screen w-full bg-white dark:bg-black text-black dark:text-white font-sans overflow-hidden p-4 gap-4">
       
       {/* 1. LEFT SIDEBAR */}
-      <div className="w-72 shrink-0 border border-black dark:border-white bg-white dark:bg-black flex flex-col">
-        <aside className="flex-1 flex flex-col bg-white dark:bg-black overflow-hidden">
-          <div className="p-6 border-b border-black dark:border-white flex items-center justify-between">
-            <h1 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight">V-StudyIT<span className="font-sans text-xs ml-2 tracking-widest uppercase font-normal text-zinc-500 dark:text-zinc-400">/ OS</span></h1>
-            <button 
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-1.5 border border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100"
-              title="Toggle Theme"
-            >
-              <div className="w-3.5 h-3.5 rounded-full bg-black dark:bg-white overflow-hidden flex">
-                <div className="w-1/2 h-full bg-black dark:bg-white"></div>
-                <div className="w-1/2 h-full bg-white dark:bg-black"></div>
+      <div className={`${isLeftSidebarCollapsed ? 'w-16' : 'w-72'} shrink-0 border border-black dark:border-white bg-white dark:bg-black flex flex-col transition-all duration-150 relative overflow-hidden`}>
+        {/* Subtle Swiss Dot Grid Pattern */}
+        <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+        <aside className="flex-1 flex flex-col bg-transparent overflow-hidden relative z-10">
+          {/* Header */}
+          {!isLeftSidebarCollapsed ? (
+            <div className="p-6 border-b border-black dark:border-white flex items-center justify-between bg-transparent">
+              <h1 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight">V-StudyIT<span className="font-sans text-xs ml-2 tracking-widest uppercase font-normal text-zinc-500 dark:text-zinc-400">/ OS</span></h1>
+              <div className="flex items-center gap-1.5">
+                <button 
+                  onClick={() => setIsDarkMode(!isDarkMode)}
+                  className="p-1.5 border border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 bg-white dark:bg-black"
+                  title="Toggle Theme"
+                >
+                  <div className="w-3.5 h-3.5 rounded-full bg-black dark:bg-white overflow-hidden flex">
+                    <div className="w-1/2 h-full bg-black dark:bg-white"></div>
+                    <div className="w-1/2 h-full bg-white dark:bg-black"></div>
+                  </div>
+                </button>
+                <button 
+                  onClick={() => setIsLeftSidebarCollapsed(true)}
+                  className="p-1.5 border border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100"
+                  title="Minimize Sidebar"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
               </div>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4">
-            <div className="relative mb-4">
+            </div>
+          ) : (
+            <div className="p-2.5 border-b border-black dark:border-white flex flex-col items-center gap-2 bg-transparent">
               <button 
-                onClick={() => setIsCourseDropdownOpen(!isCourseDropdownOpen)}
-                className="w-full text-left group focus:outline-none"
+                onClick={() => setIsLeftSidebarCollapsed(false)}
+                className="p-1.5 border border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 w-full flex items-center justify-center"
+                title="Expand Sidebar"
               >
-                <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-800 dark:hover:text-zinc-200 uppercase tracking-widest transition-colors bg-white dark:bg-black hover:bg-zinc-100 dark:hover:bg-zinc-900 p-3 rounded-none border border-black dark:border-white">
-                  <span>Active Course</span>
-                  <ChevronDown className={`w-4 h-4 transition-transform ${isCourseDropdownOpen ? 'rotate-180' : ''}`} />
+                <PanelLeftOpen className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                className="p-1.5 border border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 w-full flex items-center justify-center"
+                title="Toggle Theme"
+              >
+                <div className="w-3.5 h-3.5 rounded-full bg-black dark:bg-white overflow-hidden flex">
+                  <div className="w-1/2 h-full bg-black dark:bg-white"></div>
+                  <div className="w-1/2 h-full bg-white dark:bg-black"></div>
                 </div>
               </button>
+            </div>
+          )}
+
+          {/* Navigation Items */}
+          <div className={`flex-1 overflow-y-auto ${isLeftSidebarCollapsed ? 'p-2' : 'p-4'}`}>
+            {/* Active Course */}
+            <div className="relative mb-4">
+              {!isLeftSidebarCollapsed ? (
+                <button 
+                  onClick={() => setIsCourseDropdownOpen(!isCourseDropdownOpen)}
+                  className="w-full text-left group focus:outline-none"
+                >
+                  <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-800 dark:hover:text-zinc-200 uppercase tracking-widest transition-colors bg-white dark:bg-black hover:bg-zinc-100 dark:hover:bg-zinc-900 p-3 rounded-none border border-black dark:border-white">
+                    <div className="flex items-center gap-2">
+                      <span 
+                        className="w-2.5 h-2.5 rounded-full border border-black dark:border-white shrink-0" 
+                        style={{ backgroundColor: activeCourse?.color || '#000000' }} 
+                      />
+                      <span>Active Subject</span>
+                    </div>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${isCourseDropdownOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+              ) : (
+                <button 
+                  onClick={() => setIsCourseDropdownOpen(!isCourseDropdownOpen)}
+                  className="w-full p-2 border border-black dark:border-white font-mono font-bold text-[9px] uppercase tracking-wider text-center bg-white dark:bg-black hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors truncate flex flex-col items-center gap-1"
+                  title={`Active Subject: ${activeCourse?.code || 'Select'}`}
+                >
+                  <span 
+                    className="w-2 h-2 rounded-full border border-black dark:border-white" 
+                    style={{ backgroundColor: activeCourse?.color || '#000000' }} 
+                  />
+                  <span>{activeCourse?.code?.slice(0, 4) || 'CRS'}</span>
+                </button>
+              )}
 
               {isCourseDropdownOpen && (
-                <div className="absolute top-full left-0 w-full mt-2 bg-white dark:bg-black border border-black dark:border-white rounded-none  z-50 overflow-hidden flex flex-col">
-                  <div className="max-h-64 overflow-y-auto">
+                <div className={`${isLeftSidebarCollapsed ? 'fixed left-20 top-20 w-64 shadow-2xl' : 'absolute top-full left-0 w-full mt-2'} bg-white dark:bg-black border border-black dark:border-white rounded-none z-50 overflow-hidden flex flex-col relative`}>
+                  <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+                  <div className="max-h-64 overflow-y-auto relative z-10">
                     {courses.map(course => (
-                      <button
+                      <div
                         key={course.id}
-                        onClick={() => {
-                          setActiveCourseId(course.id);
-                          setIsCourseDropdownOpen(false);
-                        }}
-                        className={`w-full text-left flex items-center justify-between px-4 py-3 border-b border-black dark:border-white last:border-0 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors ${activeCourseId === course.id ? 'bg-zinc-100 dark:bg-zinc-900' : ''}`}
+                        className={`w-full flex items-center justify-between px-4 py-3 border-b border-black dark:border-white hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors group ${activeCourseId === course.id ? 'bg-zinc-100 dark:bg-zinc-900' : ''}`}
                       >
-                        <div className="flex flex-col overflow-hidden mr-2">
-                          <span className={`text-sm font-medium ${activeCourseId === course.id ? 'text-black dark:text-white' : 'text-zinc-500 dark:text-zinc-400'}`}>{course.code}</span>
-                          <span className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{course.title}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveCourseId(course.id);
+                            setIsCourseDropdownOpen(false);
+                          }}
+                          className="flex flex-col overflow-hidden text-left flex-1 min-w-0 mr-2 focus:outline-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span 
+                              className="w-2.5 h-2.5 rounded-full shrink-0 border border-black dark:border-white" 
+                              style={{ backgroundColor: course.color || '#000000' }} 
+                            />
+                            <span className={`text-sm font-medium ${activeCourseId === course.id ? 'text-black dark:text-white font-bold' : 'text-zinc-500 dark:text-zinc-400'}`}>{course.code}</span>
+                            {course.slot && (
+                              <span className="px-1 py-0.2 text-[8px] font-mono border border-black dark:border-white bg-black dark:bg-white text-white dark:text-black font-bold">
+                                {course.slot}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate ml-4.5">{course.title}</span>
+                          {(course.timings || course.roomNumber) && (
+                            <span className="text-[9px] font-mono text-zinc-400 dark:text-zinc-500 truncate mt-0.5 ml-4.5">
+                              {[course.timings, course.roomNumber].filter(Boolean).join(' • ')}
+                            </span>
+                          )}
+                        </button>
+                        
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingCourse({ ...course });
+                              setIsCourseDropdownOpen(false);
+                            }}
+                            className="p-1 text-zinc-400 hover:text-black dark:hover:text-white transition-colors"
+                            title="Edit Subject Details"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          {activeCourseId === course.id && <Check className="w-3 h-3 text-black dark:text-white shrink-0 ml-1" />}
                         </div>
-                        {activeCourseId === course.id && <Check className="w-3 h-3 text-black dark:text-white shrink-0" />}
-                      </button>
+                      </div>
                     ))}
                   </div>
                   
-                  <div className="p-3 bg-zinc-100 dark:bg-zinc-900">
+                  <div className="p-3 bg-zinc-100 dark:bg-zinc-900 border-t border-black dark:border-white">
                     {isAddingCourse ? (
-                      <form onSubmit={e => { handleAddCourse(e); setIsCourseDropdownOpen(false); }}>
-                        <input autoFocus type="text" placeholder="Course Code" value={newCourseCode} onChange={e => setNewCourseCode(e.target.value)} className="w-full bg-transparent border-b border-black dark:border-white text-sm py-1.5 mb-2 focus:outline-none focus:border-zinc-500 text-black dark:text-white placeholder-zinc-700 dark:placeholder-zinc-300" />
-                        <input type="text" placeholder="Course Title" value={newCourseTitle} onChange={e => setNewCourseTitle(e.target.value)} className="w-full bg-transparent border-b border-black dark:border-white text-sm py-1.5 mb-4 focus:outline-none focus:border-zinc-500 text-black dark:text-white placeholder-zinc-700 dark:placeholder-zinc-300" />
-                        <div className="flex gap-4 text-xs">
-                          <button type="button" onClick={() => setIsAddingCourse(false)} className="text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200">Cancel</button>
-                          <button type="submit" className="text-black dark:text-white">Save Course</button>
+                      <form onSubmit={e => { handleAddCourse(e); setIsCourseDropdownOpen(false); }} className="space-y-2">
+                        <input autoFocus type="text" placeholder="Course Code (e.g. CS101)" value={newCourseCode} onChange={e => setNewCourseCode(e.target.value)} className="w-full bg-white dark:bg-black border-b border-black dark:border-white text-xs py-1 focus:outline-none text-black dark:text-white placeholder-zinc-500 dark:placeholder-zinc-400 font-mono" />
+                        <input type="text" placeholder="Course Title" value={newCourseTitle} onChange={e => setNewCourseTitle(e.target.value)} className="w-full bg-white dark:bg-black border-b border-black dark:border-white text-xs py-1 focus:outline-none text-black dark:text-white placeholder-zinc-500 dark:placeholder-zinc-400 font-mono" />
+                        <input type="text" placeholder="Slot (e.g. E2 + TE2)" value={newCourseSlot} onChange={e => setNewCourseSlot(e.target.value)} className="w-full bg-white dark:bg-black border-b border-black dark:border-white text-xs py-1 focus:outline-none text-black dark:text-white placeholder-zinc-500 dark:placeholder-zinc-400 font-mono" />
+                        <input type="text" placeholder="Timings (e.g. 08:00 - 08:50)" value={newCourseTimings} onChange={e => setNewCourseTimings(e.target.value)} className="w-full bg-white dark:bg-black border-b border-black dark:border-white text-xs py-1 focus:outline-none text-black dark:text-white placeholder-zinc-500 dark:placeholder-zinc-400 font-mono" />
+                        <input type="text" placeholder="Room Number (e.g. SJT 412)" value={newCourseRoom} onChange={e => setNewCourseRoom(e.target.value)} className="w-full bg-white dark:bg-black border-b border-black dark:border-white text-xs py-1 focus:outline-none text-black dark:text-white placeholder-zinc-500 dark:placeholder-zinc-400 font-mono" />
+                        
+                        <div>
+                          <label className="text-[9px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1">Color Tag</label>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {COURSE_COLOR_PALETTE.map(c => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => setNewCourseColor(c.hex)}
+                                className={`w-5 h-5 rounded-full border-2 transition-transform ${newCourseColor === c.hex ? 'scale-110 border-black dark:border-white' : 'border-transparent hover:scale-105'}`}
+                                style={{ backgroundColor: c.hex }}
+                                title={c.name}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex gap-4 text-xs pt-2">
+                          <button type="button" onClick={() => setIsAddingCourse(false)} className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white">Cancel</button>
+                          <button type="submit" className="font-bold text-black dark:text-white hover:underline">Save Subject</button>
                         </div>
                       </form>
                     ) : (
-                      <button onClick={() => setIsAddingCourse(true)} className="w-full text-left text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center gap-2 py-1"><Plus className="w-3 h-3" /> Add New Course</button>
+                      <button onClick={() => setIsAddingCourse(true)} className="w-full text-left text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center gap-2 py-1"><Plus className="w-3 h-3" /> Add New Subject</button>
                     )}
                   </div>
                 </div>
               )}
             </div>
 
+            {/* Navigation Buttons */}
             <div className="flex flex-col gap-2">
               <button 
                 onClick={() => {
@@ -588,51 +888,105 @@ export default function App() {
                   else { setIsRightSidebarOpen(true); setRightPanelMode('timerAndTasks'); }
                 }}
                 className="w-full text-left group focus:outline-none"
+                title="Timer & Tasks"
               >
-                <div className={`flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-widest transition-colors duration-100 p-3 border border-black dark:border-white ${isRightSidebarOpen && rightPanelMode === 'timerAndTasks' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
-                  <span className="flex items-center gap-2">
-                    <Timer className="w-4 h-4" />
-                    Timer & Tasks
-                  </span>
-                  <div className="w-5 h-5 shrink-0 flex items-center justify-center">
-                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 24 24">
-                      <circle cx="12" cy="12" r="10" className={`stroke-zinc-300 ${isRightSidebarOpen && rightPanelMode === 'timerAndTasks' ? 'dark:stroke-zinc-600' : 'dark:stroke-white'} group-hover:stroke-zinc-700 dark:group-hover:stroke-black`} strokeWidth="3" fill="transparent" />
-                      <circle cx="12" cy="12" r="10" style={{ stroke: strokeColor }} className="transition-all duration-1000 ease-linear" strokeWidth="3" strokeDasharray={62.83} strokeDashoffset={miniStrokeOffset} strokeLinecap="round" fill="transparent" />
-                    </svg>
+                {!isLeftSidebarCollapsed ? (
+                  <div className={`flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-widest transition-colors duration-100 p-3 border border-black dark:border-white ${isRightSidebarOpen && rightPanelMode === 'timerAndTasks' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
+                    <span className="flex items-center gap-2">
+                      <Timer className="w-4 h-4" />
+                      Timer & Tasks
+                    </span>
+                    <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" className={`stroke-zinc-300 ${isRightSidebarOpen && rightPanelMode === 'timerAndTasks' ? 'dark:stroke-zinc-600' : 'dark:stroke-white'} group-hover:stroke-zinc-700 dark:group-hover:stroke-black`} strokeWidth="3" fill="transparent" />
+                        <circle cx="12" cy="12" r="10" style={{ stroke: strokeColor }} className="transition-all duration-1000 ease-linear" strokeWidth="3" strokeDasharray={62.83} strokeDashoffset={miniStrokeOffset} strokeLinecap="round" fill="transparent" />
+                      </svg>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className={`flex flex-col items-center justify-center p-2.5 border border-black dark:border-white transition-colors duration-100 gap-1.5 ${isRightSidebarOpen && rightPanelMode === 'timerAndTasks' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
+                    <Timer className="w-4 h-4" />
+                    <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" className={`stroke-zinc-300 ${isRightSidebarOpen && rightPanelMode === 'timerAndTasks' ? 'dark:stroke-zinc-600' : 'dark:stroke-white'} group-hover:stroke-zinc-700 dark:group-hover:stroke-black`} strokeWidth="3" fill="transparent" />
+                        <circle cx="12" cy="12" r="10" style={{ stroke: strokeColor }} className="transition-all duration-1000 ease-linear" strokeWidth="3" strokeDasharray={62.83} strokeDashoffset={miniStrokeOffset} strokeLinecap="round" fill="transparent" />
+                      </svg>
+                    </div>
+                  </div>
+                )}
               </button>
+
               <button 
                 onClick={() => {
                   if (isRightSidebarOpen && rightPanelMode === 'schedule') setIsRightSidebarOpen(false);
                   else { setIsRightSidebarOpen(true); setRightPanelMode('schedule'); }
                 }}
                 className="w-full text-left group focus:outline-none"
+                title="Schedule & Milestones"
               >
-                <div className={`flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-widest transition-colors duration-100 p-3 border border-black dark:border-white ${isRightSidebarOpen && rightPanelMode === 'schedule' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
-                  <span className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    Schedule
-                  </span>
-                  <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                {!isLeftSidebarCollapsed ? (
+                  <div className={`flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-widest transition-colors duration-100 p-3 border border-black dark:border-white ${isRightSidebarOpen && rightPanelMode === 'schedule' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
+                    <span className="flex items-center gap-2">
+                      <FileSpreadsheet className="w-4 h-4" />
+                      Schedule
+                    </span>
+                    <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                      {(() => {
+                        const count = activeCourseTasks.filter(t => !t.completed).length;
+                        if (count === 0) return null;
+                        const isActive = isRightSidebarOpen && rightPanelMode === 'schedule';
+                        return (
+                          <span className={`px-1.5 py-0.5 text-[10px] font-bold leading-none transition-colors duration-100 ${isActive ? 'bg-white dark:bg-black text-black dark:text-white' : 'bg-black dark:bg-white text-white dark:text-black group-hover:bg-white dark:group-hover:bg-black group-hover:text-black dark:group-hover:text-white'}`}>
+                            {count}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`flex flex-col items-center justify-center p-2.5 border border-black dark:border-white transition-colors duration-100 gap-1 ${isRightSidebarOpen && rightPanelMode === 'schedule' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
+                    <FileSpreadsheet className="w-4 h-4" />
                     {(() => {
                       const count = activeCourseTasks.filter(t => !t.completed).length;
                       if (count === 0) return null;
                       const isActive = isRightSidebarOpen && rightPanelMode === 'schedule';
                       return (
-                        <span className={`px-1.5 py-0.5 text-[10px] font-bold leading-none transition-colors duration-100 ${isActive ? 'bg-white dark:bg-black text-black dark:text-white' : 'bg-black dark:bg-white text-white dark:text-black group-hover:bg-white dark:group-hover:bg-black group-hover:text-black dark:group-hover:text-white'}`}>
+                        <span className={`px-1 py-0.5 text-[9px] font-mono font-bold leading-none ${isActive ? 'bg-white dark:bg-black text-black dark:text-white' : 'bg-black dark:bg-white text-white dark:text-black group-hover:bg-white dark:group-hover:bg-black group-hover:text-black dark:group-hover:text-white'}`}>
                           {count}
                         </span>
                       );
                     })()}
                   </div>
-                </div>
+                )}
+              </button>
+
+              <button 
+                onClick={() => {
+                  if (isRightSidebarOpen && rightPanelMode === 'calendar') setIsRightSidebarOpen(false);
+                  else { setIsRightSidebarOpen(true); setRightPanelMode('calendar'); }
+                }}
+                className="w-full text-left group focus:outline-none"
+                title="Calendar"
+              >
+                {!isLeftSidebarCollapsed ? (
+                  <div className={`flex items-center justify-between font-mono text-[10px] font-bold uppercase tracking-widest transition-colors duration-100 p-3 border border-black dark:border-white ${isRightSidebarOpen && rightPanelMode === 'calendar' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
+                    <span className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Calendar
+                    </span>
+                  </div>
+                ) : (
+                  <div className={`flex flex-col items-center justify-center p-2.5 border border-black dark:border-white transition-colors duration-100 gap-1 ${isRightSidebarOpen && rightPanelMode === 'calendar' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                )}
               </button>
             </div>
           </div>
 
-          <div className="p-4 border-t border-black dark:border-white">
-            <AudioPlayer />
+          {/* Bottom Audio Player */}
+          <div className={`${isLeftSidebarCollapsed ? 'p-1' : 'p-4'} border-t border-black dark:border-white`}>
+            <AudioPlayer isCollapsed={isLeftSidebarCollapsed} />
           </div>
         </aside>
       </div>
@@ -645,13 +999,54 @@ export default function App() {
           ) : (
             <>
               <header className={`px-8 py-4 border-b border-black dark:border-white flex flex-col gap-4 shrink-0 transition-all ${isCramMode ? '   bg-rose-950/10' : ''}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span 
+                      className="w-3.5 h-3.5 rounded-full shrink-0 border border-black dark:border-white shadow-sm"
+                      style={{ backgroundColor: activeCourse.color || '#000000' }}
+                      title={`Color: ${activeCourse.color || 'Default'}`}
+                    />
                     <h2 className="font-serif text-lg font-bold text-black dark:text-white tracking-tight">{activeCourse.code}</h2>
-                    <span className="text-zinc-700 dark:text-zinc-300">/</span>
-                    <span className="text-sm text-zinc-500 dark:text-zinc-400">{activeCourse.title}</span>
-                    {(courseFiles[activeCourse.id]?.length || 0) > 0 && <span className="text-xs text-zinc-500 dark:text-zinc-400 ml-2">({courseFiles[activeCourse.id].length} files)</span>}
+                    <span className="text-zinc-400 dark:text-zinc-600">/</span>
+                    <span className="text-sm text-zinc-600 dark:text-zinc-300 font-medium">{activeCourse.title}</span>
+                    
+                    {activeCourse.slot && (
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-black dark:border-white bg-black dark:bg-white text-white dark:text-black flex items-center gap-1">
+                        <Layers className="w-3 h-3" />
+                        {activeCourse.slot}
+                      </span>
+                    )}
+
+                    {activeCourse.timings && (
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {activeCourse.timings}
+                      </span>
+                    )}
+
+                    {activeCourse.roomNumber && (
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 border border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {activeCourse.roomNumber}
+                      </span>
+                    )}
+
+                    {(courseFiles[activeCourse.id]?.length || 0) > 0 && (
+                      <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                        ({courseFiles[activeCourse.id].length} files)
+                      </span>
+                    )}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setEditingCourse({ ...activeCourse })}
+                    className="flex items-center gap-1 px-2.5 py-1 border border-black dark:border-white text-[10px] font-mono font-bold uppercase tracking-wider hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors"
+                    title="Edit Subject Details"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                    Edit Subject
+                  </button>
                 </div>
 
                 {!(isRightSidebarOpen && rightPanelMode === 'schedule') && (
@@ -708,7 +1103,7 @@ export default function App() {
                 )}
               </header>
 
-              <div className="flex items-center gap-6 px-8 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+              <div className="flex items-center gap-6 px-8 border-b border-zinc-200 dark:border-zinc-800 shrink-0 overflow-x-auto">
                 <button 
                   onClick={() => setCenterTab('chat')}
                   className={`flex items-center gap-2 py-3 font-mono text-xs uppercase tracking-widest transition-colors duration-100 border-b-4 ${centerTab === 'chat' ? 'border-black dark:border-white text-black dark:text-white font-bold' : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white'}`}
@@ -727,24 +1122,49 @@ export default function App() {
                 >
                   <Brain className="w-4 h-4" /> Flashcards
                 </button>
+                <button 
+                  onClick={() => setCenterTab('summary')}
+                  className={`flex items-center gap-2 py-3 font-mono text-xs uppercase tracking-widest transition-colors duration-100 border-b-4 ${centerTab === 'summary' ? 'border-black dark:border-white text-black dark:text-white font-bold' : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white'}`}
+                >
+                  <BookOpen className="w-4 h-4" /> Document Summary
+                </button>
               </div>
+
 
               {centerTab === 'chat' && (
                 <>
                   <div className="flex-1 overflow-y-auto p-8 space-y-8">
-                    {activeMessages.length === 0 ? (
+                    {(courseFiles[activeCourse.id] || []).length > 0 && (
+                      <div className="flex items-center justify-between px-4 py-2 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 max-w-2xl">
+                        <div className="flex items-center gap-2.5 text-zinc-700 dark:text-zinc-300 min-w-0">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse" />
+                          <span className="font-mono font-bold text-[10px] uppercase tracking-widest text-black dark:text-white shrink-0">AI Knowledge Base Active:</span>
+                          <span className="font-mono text-[10px] text-zinc-600 dark:text-zinc-400 truncate">
+                            {courseFiles[activeCourse.id].map(f => f.name).join(', ')}
+                          </span>
+                        </div>
+                        <button 
+                          onClick={() => setCenterTab('summary')}
+                          className="font-mono text-[9px] uppercase tracking-wider font-bold bg-black dark:bg-white text-white dark:text-black px-2 py-0.5 shrink-0 hover:opacity-80 transition-opacity ml-2"
+                        >
+                          {courseFiles[activeCourse.id].length} File{courseFiles[activeCourse.id].length > 1 ? 's' : ''} Connected
+                        </button>
+                      </div>
+                    )}
+                    {messages.length === 0 ? (
+
                       <div className="text-[11px] font-mono font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">No messages yet.</div>
                     ) : (
-                      activeMessages.map(msg => (
-                        <div key={msg.id} className="flex gap-6 max-w-2xl border-b border-zinc-200 dark:border-zinc-800 pb-8 last:border-0">
-                          <div className="w-6 h-6 mt-1 border-2 border-black dark:border-white flex items-center justify-center shrink-0 font-bold font-mono text-[10px] text-black dark:text-white uppercase">{msg.role === 'user' ? 'U' : 'A'}</div>
+                      messages.map((m, i) => (
+                        <div key={i} className="flex gap-6 max-w-2xl border-b border-zinc-200 dark:border-zinc-800 pb-8 last:border-0">
+                          <div className="w-6 h-6 mt-1 border-2 border-black dark:border-white flex items-center justify-center shrink-0 font-bold font-mono text-[10px] text-black dark:text-white uppercase">{m.role === 'user' ? 'U' : 'A'}</div>
                           <div className="space-y-4 w-full">
-                            <div className={`text-base leading-relaxed ${msg.role === 'user' ? 'font-serif font-bold text-black dark:text-white' : 'font-serif text-black dark:text-white'}`}>{msg.content}</div>
-                            {msg.citations && msg.citations.length > 0 && (
+                            <div style={{ whiteSpace: 'pre-wrap' }} className={`text-base leading-relaxed ${m.role === 'user' ? 'font-serif font-bold text-black dark:text-white' : 'font-serif text-black dark:text-white'}`}>{m.content}</div>
+                            {m.citations && m.citations.length > 0 && (
                               <div className="flex flex-wrap gap-2 text-xs mt-4">
-                                {msg.citations.map((c, i) => (
+                                {m.citations.map((c, idx) => (
                                   <button 
-                                    key={i} 
+                                    key={idx} 
                                     onClick={() => setActiveCitation(c)}
                                     className={`flex items-center gap-1 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest font-bold border-2 transition-colors duration-100 ${c.examContext ? 'bg-white dark:bg-black border-rose-600 text-rose-600 hover:bg-rose-600 hover:text-white dark:hover:text-black' : 'bg-white dark:bg-black border-black dark:border-white text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}
                                   >
@@ -753,11 +1173,35 @@ export default function App() {
                                 ))}
                               </div>
                             )}
+                            {m.role === 'assistant' && i > 0 && (
+                              <div className="flex items-center gap-2 pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerateFlashcards(m.content)}
+                                  disabled={isLoading || isGeneratingFlashcards}
+                                  className="flex items-center gap-1.5 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest font-bold border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 disabled:opacity-50"
+                                  title="Create flashcards from this answer"
+                                >
+                                  <Brain className="w-3 h-3" />
+                                  Make Flashcards
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))
                     )}
-                    <div ref={chatEndRef} />
+                    {(isLoading || isGeneratingFlashcards) && (
+                      <div className="flex gap-6 max-w-2xl border-b border-zinc-200 dark:border-zinc-800 pb-8 last:border-0 animate-pulse">
+                        <div className="w-6 h-6 mt-1 border-2 border-black dark:border-white flex items-center justify-center shrink-0 font-bold font-mono text-[10px] text-black dark:text-white uppercase">A</div>
+                        <div className="space-y-4 w-full">
+                          <div className="text-base font-serif italic text-zinc-500 dark:text-zinc-400">
+                            {isGeneratingFlashcards ? "Generating flashcards..." : "Thinking..."}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={bottomRef} />
                   </div>
 
                   <div className="p-8 border-t border-black dark:border-white shrink-0 bg-white dark:bg-black">
@@ -770,14 +1214,42 @@ export default function App() {
                           Cram Filter {isCramMode ? 'ON' : 'OFF'}
                         </button>
                         <button onClick={() => setIsUploadModalOpen(true)} className="flex items-center gap-2 px-2 py-1 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">Upload</button>
+                        <button 
+                          type="button"
+                          onClick={() => setCenterTab('summary')}
+                          className="flex items-center gap-1.5 px-2.5 py-1 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 font-mono text-[10px] uppercase tracking-widest font-bold"
+                          title="Upload and summarize study documents"
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span>Summarize</span>
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => handleGenerateFlashcards()} 
+                          disabled={isLoading || isGeneratingFlashcards}
+                          className="flex items-center gap-1.5 px-2.5 py-1 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 disabled:opacity-50 font-mono text-[10px] uppercase tracking-widest font-bold"
+                          title="Generate flashcards from current topic or notes"
+                        >
+                          <Brain className="w-3.5 h-3.5" />
+                          <span>{isGeneratingFlashcards ? 'Generating...' : 'Make Flashcards'}</span>
+                        </button>
+
                       </div>
                       <div className="flex items-center">
                         <button onClick={() => setStudyMode('deep')} className={`w-20 shrink-0 text-center px-2 py-1 border border-black dark:border-white transition-colors duration-100 ${studyMode === 'deep' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>Deep</button>
                         <button onClick={() => setStudyMode('exam')} className={`w-20 shrink-0 text-center px-2 py-1 border border-black dark:border-white -ml-[1px] transition-colors duration-100 ${studyMode === 'exam' ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black'}`}>Exam</button>
                       </div>
                     </div>
-                    <form onSubmit={handleSendMessage} className="relative max-w-2xl">
-                      <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Type a message..." className="w-full bg-transparent border-b-2 border-black dark:border-white text-base font-serif text-black dark:text-white placeholder:italic placeholder-zinc-500 dark:placeholder-zinc-400 py-3 focus:outline-none focus:border-b-4 transition-all duration-100" />
+                    <form onSubmit={handleSubmit} className="relative max-w-2xl">
+                      <input 
+                        type="text" 
+                        value={input} 
+                        onChange={(e) => setInput(e.target.value)} 
+                        disabled={isLoading || isGeneratingFlashcards}
+                        placeholder={isGeneratingFlashcards ? "Generating flashcards..." : isLoading ? "Thinking..." : "Type a message or 'make flashcards'..."} 
+ 
+                        className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-base font-serif text-black dark:text-white placeholder:italic placeholder-zinc-500 dark:placeholder-zinc-400 py-3 focus:outline-none focus:border-b-4 transition-all duration-100 disabled:opacity-50" 
+                      />
                     </form>
                   </div>
                 </>
@@ -886,21 +1358,51 @@ export default function App() {
               )}
               {centerTab === 'flashcards' && (
                 <div className="flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950 p-8">
-                  <FlashcardDeck deckName={`${activeCourse.code} High-Yield Flashcards`} cards={MOCK_FLASHCARDS[activeCourse.id] || []} />
+                  <FlashcardDeck deckName={`${activeCourse.code} High-Yield Flashcards`} cards={flashcards} />
                 </div>
               )}
+              {centerTab === 'summary' && (
+                <DocumentSummarizer
+                  onGenerateFlashcards={(summaryText) => {
+                    handleGenerateFlashcards(summaryText);
+                  }}
+                  courseCode={activeCourse.code}
+                  courseId={activeCourse.id}
+                  onDocumentUploaded={(newDoc) => {
+                    setCourseFiles(prev => ({
+                      ...prev,
+                      [activeCourse.id]: [
+                        ...(prev[activeCourse.id] || []).filter(f => f.name !== newDoc.name),
+                        {
+                          id: newDoc.id,
+                          name: newDoc.name,
+                          size: newDoc.size,
+                          type: 'Lecture Slide',
+                          uploadDate: new Date().toISOString(),
+                          url: '#',
+                          content: newDoc.content
+                        }
+                      ]
+                    }));
+                  }}
+                />
+              )}
+
             </>
           )}
         </main>
       </div>
 
+
       {/* 3. RIGHT SIDEBAR */}
       {isRightSidebarOpen && (
-        <div className="w-80 shrink-0 border border-black dark:border-white bg-white dark:bg-black flex flex-col">
-          <aside className="flex-1 flex flex-col bg-white dark:bg-black overflow-hidden">
+        <div className={`${rightPanelMode === 'calendar' ? 'w-[450px]' : 'w-80'} shrink-0 border border-black dark:border-white bg-white dark:bg-black flex flex-col transition-all duration-150 relative overflow-hidden`}>
+          {/* Subtle Swiss Dot Grid Pattern */}
+          <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+          <aside className="flex-1 flex flex-col bg-transparent overflow-hidden relative z-10">
             {rightPanelMode === 'timerAndTasks' ? (
               <>
-                <div className={`p-8 border-b border-black dark:border-white flex flex-col items-center justify-center ${!isTimerOpen ? 'pb-8' : ''}`}>
+                <div className={`p-8 border-b border-black dark:border-white flex flex-col items-center justify-center bg-transparent ${!isTimerOpen ? 'pb-8' : ''}`}>
               <div className={`w-full flex justify-between items-center ${isTimerOpen ? 'mb-8' : ''}`}>
                 <button 
                   onClick={() => setIsTimerOpen(!isTimerOpen)} 
@@ -952,7 +1454,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="flex w-full items-center justify-between border border-black dark:border-white p-0.5 gap-0.5">
+                  <div className="flex w-full items-center justify-between border border-black dark:border-white p-0.5 gap-0.5 bg-white dark:bg-black">
                     <button onClick={() => { setTimeLeft(settings[timerMode] * 60); setIsRunning(false); }} className="p-2 bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 flex-1 flex justify-center">
                       <RotateCcw className="w-4 h-4" />
                     </button>
@@ -970,7 +1472,7 @@ export default function App() {
             </div>
 
             <div className={`flex-1 flex flex-col min-h-0 ${!isTasksOpen ? 'flex-none' : ''}`}>
-              <div className="flex border-b border-black dark:border-white text-xs items-center relative">
+              <div className="flex border-b border-black dark:border-white text-xs items-center relative bg-transparent">
                 <button 
                   onClick={() => setIsTasksOpen(!isTasksOpen)}
                   className="absolute left-4 z-10 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white focus:outline-none transition-colors"
@@ -978,7 +1480,6 @@ export default function App() {
                   <ChevronDown className={`w-4 h-4 transition-transform ${isTasksOpen ? 'rotate-180' : ''}`} />
                 </button>
                 <button onClick={() => setRightSidebarTab('materials')} className={`flex-1 py-4 uppercase tracking-widest font-mono text-[11px] font-bold transition-all duration-100 border-b-2 text-black dark:text-white border-black dark:border-white`}>Files</button>
-                
               </div>
               
               {isTasksOpen && (
@@ -1014,7 +1515,7 @@ export default function App() {
               )}
             </div>
             </>
-            ) : (
+            ) : rightPanelMode === 'schedule' ? (
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-8">
                   {scheduleTab === 'schedule' && (
@@ -1036,7 +1537,7 @@ export default function App() {
                                     [COUNTDOWN: {diffDays} DAYS TO {nextEvent.title.toUpperCase()}]
                                   </div>
                                 )}
-                                <div className="font-mono text-[10px] uppercase tracking-widest font-bold border-2 border-black dark:border-white p-2 text-center text-black dark:text-white">
+                                <div className="font-mono text-[10px] uppercase tracking-widest font-bold border-2 border-black dark:border-white p-2 text-center text-black dark:text-white bg-white dark:bg-black">
                                   [TARGET: 9.0+ GPA]
                                 </div>
                               </>
@@ -1050,14 +1551,14 @@ export default function App() {
                              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                              const isUrgent = diffDays <= 7;
                              return (
-                               <div key={event.id} className={`border-2 p-4 flex flex-col gap-3 transition-colors duration-100 ${isUrgent ? 'border-rose-600' : 'border-black dark:border-white'}`}>
+                               <div key={event.id} className={`border-2 p-4 flex flex-col gap-3 transition-colors duration-100 bg-white dark:bg-black ${isUrgent ? 'border-rose-600' : 'border-black dark:border-white'}`}>
                                  <div className="flex items-center justify-between">
                                    <span className={`font-mono text-[10px] font-bold tracking-widest uppercase px-2 py-1 ${isUrgent ? 'bg-rose-600 text-white' : 'bg-black dark:bg-white text-white dark:text-black'}`}>[{event.type}]</span>
                                    <span className="font-mono text-xs font-bold">{diffDays} DAYS LEFT</span>
                                  </div>
                                  <div className="font-serif font-bold text-lg">{event.title}</div>
                                  <div className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">{new Date(event.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
-                               </div>
+                                </div>
                              );
                           })}
                           {derivedExamEvents.length === 0 && (
@@ -1068,7 +1569,7 @@ export default function App() {
                         </div>
                         
                         <div className="flex flex-col gap-2 mt-4">
-                          <button onClick={openExamEdit} className="w-full border-2 border-black dark:border-white py-3 font-mono text-[10px] font-bold tracking-widest uppercase hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">
+                          <button onClick={openExamEdit} className="w-full border-2 border-black dark:border-white py-3 font-mono text-[10px] font-bold tracking-widest uppercase hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100 bg-white dark:bg-black">
                             [+ SET MILESTONE DATES]
                           </button>
                           <button onClick={() => {
@@ -1086,7 +1587,7 @@ export default function App() {
                     {true && (
                       <div>
                         <form onSubmit={handleAddTask} className="mb-6">
-                          <input type="text" placeholder="Add task..." value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} className="w-full font-mono bg-transparent border-b-2 border-black dark:border-white text-sm text-black dark:text-white placeholder-zinc-500 dark:placeholder-zinc-400 py-2 focus:outline-none focus:border-b-4 transition-all duration-100" />
+                          <input type="text" placeholder="Add task..." value={newTaskTitle} onChange={e => setNewTaskTitle(e.target.value)} className="w-full font-mono bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm text-black dark:text-white placeholder-zinc-500 dark:placeholder-zinc-400 py-2 focus:outline-none focus:border-b-4 transition-all duration-100" />
                         </form>
                         <div className="space-y-0">
                           {(() => {
@@ -1114,7 +1615,40 @@ export default function App() {
                   <button onClick={() => setScheduleTab('tasks')} className={`flex-1 py-4 uppercase tracking-widest font-mono text-[11px] font-bold transition-all duration-100 border-t-2 ${scheduleTab === 'tasks' ? 'text-black dark:text-white border-black dark:border-white bg-zinc-100 dark:bg-zinc-900' : 'text-zinc-500 dark:text-zinc-400 border-transparent hover:text-black dark:hover:text-white hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}>Tasks</button>
                 </div>
               </div>
-            )}
+            ) : rightPanelMode === 'calendar' ? (
+              <div className="flex-1 overflow-y-auto bg-white dark:bg-black p-8 relative">
+                {/* Subtle Swiss Dot Grid Pattern */}
+                <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+                
+                <div className="max-w-3xl mx-auto relative z-10 space-y-6">
+                  <div className="border-2 border-black dark:border-white p-6 bg-white dark:bg-black shadow-[4px_4px_0_0_rgba(0,0,0,1)] dark:shadow-[4px_4px_0_0_rgba(255,255,255,1)]">
+                    <div>
+                      <div className="font-mono text-[10px] uppercase font-bold tracking-widest text-zinc-500 dark:text-zinc-400">
+                        Academic Schedule • {activeCourse?.code}
+                      </div>
+                      <h2 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight mt-1">
+                        {activeCourse?.title}
+                      </h2>
+                    </div>
+                  </div>
+
+                  <MinimalCalendar 
+                    events={[
+                      ...derivedExamEvents.map(e => ({ id: e.id, title: e.title, date: e.date, type: e.type })),
+                      ...customEvents.filter(e => e.courseId === activeCourseId).map(e => ({ id: e.id, title: e.title, date: e.date, time: e.time, type: 'EVENT', isCustom: true }))
+                    ]}
+                    onAddEvent={(dateStr) => {
+                      setAddingEventDate(dateStr);
+                      setAddingEventTitle('');
+                      setAddingEventTime('');
+                    }}
+                    onDeleteEvent={(id) => {
+                      setCustomEvents(prev => prev.filter(ev => ev.id !== id));
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </aside>
         </div>
       )}
@@ -1122,8 +1656,10 @@ export default function App() {
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-white/95 dark:bg-black/95 flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-sm border-2 border-black dark:border-white shadow-[8px_8px_0_0_rgba(0,0,0,1)] dark:shadow-[8px_8px_0_0_rgba(255,255,255,1)] bg-white dark:bg-black">
-            <div className="p-8 w-full">
+          <div className="w-full max-w-sm border-2 border-black dark:border-white shadow-[8px_8px_0_0_rgba(0,0,0,1)] dark:shadow-[8px_8px_0_0_rgba(255,255,255,1)] bg-white dark:bg-black relative overflow-hidden">
+            {/* Subtle Swiss Dot Grid Pattern */}
+            <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+            <div className="p-8 w-full relative z-10">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight">Timer Settings</h3>
                 <button onClick={() => setShowSettings(false)} className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white"><X className="w-5 h-5" /></button>
@@ -1132,11 +1668,11 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-6">
                   <div>
                     <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-2">Focus (Min)</label>
-                    <input type="number" value={settings.work} onChange={e => setSettings({...settings, work: Number(e.target.value)})} className="w-full bg-transparent border-b-2 border-black dark:border-white text-lg font-serif font-bold text-black dark:text-white py-2 focus:outline-none focus:border-black dark:border-white text-center transition-colors" />
+                    <input type="number" value={settings.work} onChange={e => setSettings({...settings, work: Number(e.target.value)})} className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-lg font-serif font-bold text-black dark:text-white py-2 focus:outline-none focus:border-black dark:border-white text-center transition-colors" />
                   </div>
                   <div>
                     <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-2">Break (Min)</label>
-                    <input type="number" value={settings.break} onChange={e => setSettings({...settings, break: Number(e.target.value)})} className="w-full bg-transparent border-b-2 border-black dark:border-white text-lg font-serif font-bold text-black dark:text-white py-2 focus:outline-none focus:border-black dark:border-white text-center transition-colors" />
+                    <input type="number" value={settings.break} onChange={e => setSettings({...settings, break: Number(e.target.value)})} className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-lg font-serif font-bold text-black dark:text-white py-2 focus:outline-none focus:border-black dark:border-white text-center transition-colors" />
                   </div>
                 </div>
               </div>
@@ -1149,8 +1685,10 @@ export default function App() {
       {/* Edit Exam Modal */}
       {isEditingExam && (
         <div className="fixed inset-0 bg-white/95 dark:bg-black/95 flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-sm border-2 border-black dark:border-white shadow-[8px_8px_0_0_rgba(0,0,0,1)] dark:shadow-[8px_8px_0_0_rgba(255,255,255,1)] bg-white dark:bg-black animate-in fade-in zoom-in-95 duration-100">
-            <div className="p-8 w-full">
+          <div className="w-full max-w-sm border-2 border-black dark:border-white shadow-[8px_8px_0_0_rgba(0,0,0,1)] dark:shadow-[8px_8px_0_0_rgba(255,255,255,1)] bg-white dark:bg-black animate-in fade-in zoom-in-95 duration-100 relative overflow-hidden">
+            {/* Subtle Swiss Dot Grid Pattern */}
+            <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+            <div className="p-8 w-full relative z-10">
               <div className="flex justify-between items-center mb-8">
                 <h3 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight">Edit Exams</h3>
                 <button onClick={() => setIsEditingExam(false)} className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white"><X className="w-5 h-5" /></button>
@@ -1163,12 +1701,237 @@ export default function App() {
                       type="date" 
                       value={editExams[key] ? editExams[key]!.split('T')[0] : ''} 
                       onChange={e => setEditExams({ ...editExams, [key]: e.target.value || null })} 
-                      className="w-full bg-transparent border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-2 focus:outline-none focus:border-black dark:border-white transition-colors" 
+                      className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-2 focus:outline-none focus:border-black dark:border-white transition-colors" 
                     />
                   </div>
                 ))}
               </div>
               <button onClick={saveExamMeta} className="w-full mt-8 py-3 border-2 border-black dark:border-white font-mono text-xs uppercase tracking-widest font-bold bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">Save Details</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Custom Event Modal */}
+      {addingEventDate && (
+        <div className="fixed inset-0 bg-white/95 dark:bg-black/95 flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-sm border-2 border-black dark:border-white shadow-[8px_8px_0_0_rgba(0,0,0,1)] dark:shadow-[8px_8px_0_0_rgba(255,255,255,1)] bg-white dark:bg-black animate-in fade-in zoom-in-95 duration-100 relative overflow-hidden">
+            {/* Subtle Swiss Dot Grid Pattern */}
+            <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+            <div className="p-8 w-full relative z-10">
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight">Add Event</h3>
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mt-1">{addingEventDate}</div>
+                </div>
+                <button onClick={() => { setAddingEventDate(null); setAddingEventTitle(''); setAddingEventTime(''); }} className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white self-start"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="space-y-5">
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1">Event Title</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Study Group, Lab Submission..."
+                    value={addingEventTitle} 
+                    onChange={e => setAddingEventTitle(e.target.value)}
+                    autoFocus
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && addingEventTitle.trim() && activeCourseId) {
+                        setCustomEvents(prev => [...prev, {
+                          id: Date.now().toString(),
+                          courseId: activeCourseId,
+                          title: addingEventTitle.trim(),
+                          date: addingEventDate,
+                          time: addingEventTime.trim() || undefined
+                        }]);
+                        setAddingEventDate(null);
+                        setAddingEventTitle('');
+                        setAddingEventTime('');
+                      }
+                    }}
+                    className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-2 focus:outline-none focus:border-b-4 focus:border-black dark:focus:border-white transition-all duration-100" 
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block">Time (Optional)</label>
+                    {addingEventTime && (
+                      <button 
+                        type="button" 
+                        onClick={() => setAddingEventTime('')} 
+                        className="text-[9px] font-mono uppercase text-zinc-400 hover:text-black dark:hover:text-white"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <input 
+                    type="time" 
+                    value={addingEventTime} 
+                    onChange={e => setAddingEventTime(e.target.value)}
+                    className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-2 focus:outline-none focus:border-b-4 focus:border-black dark:focus:border-white transition-all duration-100" 
+                  />
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  if (addingEventTitle.trim() && activeCourseId) {
+                    setCustomEvents(prev => [...prev, {
+                      id: Date.now().toString(),
+                      courseId: activeCourseId,
+                      title: addingEventTitle.trim(),
+                      date: addingEventDate,
+                      time: addingEventTime.trim() || undefined
+                    }]);
+                    setAddingEventDate(null);
+                    setAddingEventTitle('');
+                    setAddingEventTime('');
+                  }
+                }} 
+                disabled={!addingEventTitle.trim()}
+                className="w-full mt-8 py-3 border-2 border-black dark:border-white font-mono text-xs uppercase tracking-widest font-bold bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-100"
+              >
+                Save Event
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Subject Modal */}
+      {editingCourse && (
+        <div className="fixed inset-0 bg-white/95 dark:bg-black/95 flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-sm border-2 border-black dark:border-white shadow-[8px_8px_0_0_rgba(0,0,0,1)] dark:shadow-[8px_8px_0_0_rgba(255,255,255,1)] bg-white dark:bg-black animate-in fade-in zoom-in-95 duration-100 relative overflow-hidden">
+            {/* Subtle Swiss Dot Grid Pattern */}
+            <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+            <div className="p-8 w-full relative z-10">
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="font-serif text-2xl font-bold text-black dark:text-white tracking-tight">Edit Subject</h3>
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 dark:text-zinc-400 mt-1">{editingCourse.code}</div>
+                </div>
+                <button onClick={() => setEditingCourse(null)} className="text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white self-start"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1">Subject Code</label>
+                  <input 
+                    type="text" 
+                    value={editingCourse.code} 
+                    onChange={e => setEditingCourse({ ...editingCourse, code: e.target.value })}
+                    className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-1.5 focus:outline-none focus:border-b-4 focus:border-black dark:focus:border-white transition-all duration-100" 
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1">Subject Title</label>
+                  <input 
+                    type="text" 
+                    value={editingCourse.title} 
+                    onChange={e => setEditingCourse({ ...editingCourse, title: e.target.value })}
+                    className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-1.5 focus:outline-none focus:border-b-4 focus:border-black dark:focus:border-white transition-all duration-100" 
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1">Slot (e.g. E2 + TE2)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. E2 + TE2"
+                    value={editingCourse.slot || ''} 
+                    onChange={e => setEditingCourse({ ...editingCourse, slot: e.target.value })}
+                    className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-1.5 focus:outline-none focus:border-b-4 focus:border-black dark:focus:border-white transition-all duration-100" 
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1">Timings (e.g. 08:00 - 08:50)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. 08:00 - 08:50"
+                    value={editingCourse.timings || ''} 
+                    onChange={e => setEditingCourse({ ...editingCourse, timings: e.target.value })}
+                    className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-1.5 focus:outline-none focus:border-b-4 focus:border-black dark:focus:border-white transition-all duration-100" 
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1">Room Number (e.g. SJT 412)</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. SJT 412"
+                    value={editingCourse.roomNumber || ''} 
+                    onChange={e => setEditingCourse({ ...editingCourse, roomNumber: e.target.value })}
+                    className="w-full bg-white dark:bg-black border-b-2 border-black dark:border-white text-sm font-mono text-black dark:text-white py-1.5 focus:outline-none focus:border-b-4 focus:border-black dark:focus:border-white transition-all duration-100" 
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 dark:text-zinc-400 block mb-1.5">Color Tag</label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {COURSE_COLOR_PALETTE.map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setEditingCourse({ ...editingCourse, color: c.hex })}
+                        className={`w-6 h-6 rounded-full border-2 transition-transform flex items-center justify-center ${
+                          (editingCourse.color || '#000000') === c.hex 
+                            ? 'scale-110 border-black dark:border-white shadow-sm' 
+                            : 'border-transparent hover:scale-105'
+                        }`}
+                        style={{ backgroundColor: c.hex }}
+                        title={c.name}
+                      >
+                        {(editingCourse.color || '#000000') === c.hex && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-white dark:bg-black" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mt-8">
+                {courses.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const idToDelete = editingCourse.id;
+                      setCourses(prev => prev.filter(c => c.id !== idToDelete));
+                      if (activeCourseId === idToDelete) {
+                        const remaining = courses.filter(c => c.id !== idToDelete);
+                        setActiveCourseId(remaining[0]?.id || null);
+                      }
+                      setEditingCourse(null);
+                    }}
+                    className="p-3 border-2 border-rose-600 text-rose-600 hover:bg-rose-600 hover:text-white transition-colors"
+                    title="Delete Subject"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+                <button 
+                  onClick={() => {
+                    if (editingCourse.code.trim() && editingCourse.title.trim()) {
+                      handleUpdateCourse({
+                        ...editingCourse,
+                        code: editingCourse.code.trim(),
+                        title: editingCourse.title.trim(),
+                        slot: editingCourse.slot?.trim() || undefined,
+                        timings: editingCourse.timings?.trim() || undefined,
+                        roomNumber: editingCourse.roomNumber?.trim() || undefined,
+                        color: editingCourse.color || undefined
+                      });
+                    }
+                  }} 
+                  disabled={!editingCourse.code.trim() || !editingCourse.title.trim()}
+                  className="flex-1 py-3 border-2 border-black dark:border-white font-mono text-xs uppercase tracking-widest font-bold bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-100"
+                >
+                  Save Changes
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1185,6 +1948,7 @@ export default function App() {
           isOpen={isUploadModalOpen}
           onClose={() => setIsUploadModalOpen(false)}
           courseCode={activeCourse.code}
+          courseId={activeCourse.id}
           onFilesUploaded={handleFilesUploaded}
         />
       )}

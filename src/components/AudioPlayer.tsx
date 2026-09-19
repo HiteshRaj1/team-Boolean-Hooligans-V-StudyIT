@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ChevronDown, ChevronUp } from 'lucide-react';
 
 const TRACKS = [
   { id: 'brown', name: 'Deep Brown Noise' },
@@ -7,7 +7,11 @@ const TRACKS = [
   { id: 'drone', name: 'Ambient Drone' }
 ];
 
-export default function AudioPlayer() {
+interface AudioPlayerProps {
+  isCollapsed?: boolean;
+}
+
+export default function AudioPlayer({ isCollapsed = false }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeTrackIndex, setActiveTrackIndex] = useState(() => {
     const saved = localStorage.getItem('vstudyit_track_index');
@@ -18,6 +22,14 @@ export default function AudioPlayer() {
     return saved !== null ? parseFloat(saved) : 0.6;
   });
   const [isMuted, setIsMuted] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(() => {
+    const saved = localStorage.getItem('vstudyit_audio_minimized');
+    return saved !== null ? saved === 'true' : false;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('vstudyit_audio_minimized', isMinimized.toString());
+  }, [isMinimized]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const gainNodeRef = useRef<GainNode | null>(null);
@@ -194,11 +206,114 @@ export default function AudioPlayer() {
   const prevTrack = () => setActiveTrackIndex((prev) => (prev - 1 + TRACKS.length) % TRACKS.length);
   const toggleMute = () => setIsMuted(!isMuted);
 
+  if (isCollapsed) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-3 px-1 border-t border-black dark:border-white bg-white dark:bg-black" title={`Audio: ${TRACKS[activeTrackIndex].name}`}>
+        <button 
+          onClick={togglePlay} 
+          className="p-2 border border-black dark:border-white bg-black dark:bg-white text-white dark:text-black hover:opacity-80 transition-opacity flex items-center justify-center w-8 h-8"
+          title={isPlaying ? 'Pause Audio' : 'Play Audio'}
+        >
+          {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+        </button>
+        <button 
+          onClick={toggleMute}
+          className="p-1 text-black dark:text-white hover:text-zinc-500 transition-colors"
+          title={isMuted ? 'Unmute' : 'Mute'}
+        >
+          {isMuted || volume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+        </button>
+        <div className="flex items-end gap-0.5 h-2 opacity-80">
+          {[...Array(4)].map((_, i) => (
+            <div 
+              key={i} 
+              className="w-1 bg-[#39ff14] transition-all duration-300" 
+              style={{ 
+                height: isPlaying ? ['40%', '100%', '60%', '80%'][i] : '20%',
+                opacity: isPlaying ? 1 : 0.3
+              }} 
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Minimized Compact Format
+  if (isMinimized) {
+    return (
+      <div className="bg-zinc-100 dark:bg-zinc-900 border-t-2 border-black dark:border-white p-2 flex items-center justify-between gap-2 transition-all">
+        <button 
+          onClick={() => setIsMinimized(false)}
+          className="flex items-center gap-2 min-w-0 flex-1 text-left group focus:outline-none"
+          title="Expand Audio Player"
+        >
+          <div className="w-6 h-6 border border-black dark:border-white bg-black dark:bg-white text-white dark:text-black flex items-center justify-center shrink-0">
+            {isPlaying ? (
+              <div className="flex items-end gap-0.5 h-2.5">
+                {[...Array(3)].map((_, i) => (
+                  <div 
+                    key={i} 
+                    className="w-0.5 bg-white dark:bg-black transition-all duration-300" 
+                    style={{ height: ['50%', '100%', '70%'][i] }} 
+                  />
+                ))}
+              </div>
+            ) : (
+              <span className="font-mono text-[9px] font-bold">♫</span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-mono text-[9px] uppercase font-bold text-zinc-500 dark:text-zinc-400 leading-none">
+              TRK {activeTrackIndex + 1}
+            </div>
+            <div className="font-mono text-[10px] font-bold uppercase truncate text-black dark:text-white leading-tight">
+              {TRACKS[activeTrackIndex].name}
+            </div>
+          </div>
+        </button>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button 
+            onClick={togglePlay} 
+            className="p-1.5 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors"
+            title={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+          </button>
+          <button 
+            onClick={nextTrack} 
+            className="p-1.5 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors"
+            title="Next Track"
+          >
+            <SkipForward className="w-3 h-3 fill-current" />
+          </button>
+          <button 
+            onClick={() => setIsMinimized(false)}
+            className="p-1.5 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-colors ml-0.5"
+            title="Expand Player"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-zinc-100 dark:bg-zinc-900 border-t-2 border-black dark:border-white p-4 flex flex-col gap-4 rounded-none">
+    <div className="bg-zinc-100 dark:bg-zinc-900 border-t-2 border-black dark:border-white p-4 flex flex-col gap-4 rounded-none transition-all">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-black dark:text-white border border-black dark:border-white px-2 py-0.5 bg-white dark:bg-black">[ AUDIO ]</span>
-        <span className={`text-[10px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 transition-colors ${isPlaying ? 'bg-black dark:bg-white text-white dark:text-black' : 'text-zinc-400 dark:text-zinc-500 border border-zinc-300 dark:border-zinc-700'}`}>{isPlaying ? 'ACTIVE' : 'IDLE'}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-black dark:text-white border border-black dark:border-white px-2 py-0.5 bg-white dark:bg-black">[ AUDIO ]</span>
+          <span className={`text-[10px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 transition-colors ${isPlaying ? 'bg-black dark:bg-white text-white dark:text-black' : 'text-zinc-400 dark:text-zinc-500 border border-zinc-300 dark:border-zinc-700'}`}>{isPlaying ? 'ACTIVE' : 'IDLE'}</span>
+        </div>
+        <button
+          onClick={() => setIsMinimized(true)}
+          className="p-1 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors flex items-center justify-center"
+          title="Minimize Player"
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       <div className="bg-black dark:bg-black border-2 border-black dark:border-white p-3 flex flex-col gap-1 relative overflow-hidden shadow-[inset_0_0_10px_rgba(0,0,0,0.5)]">

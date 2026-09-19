@@ -19,3 +19,16 @@
     color-scheme: dark;
   }
 }
+
+@layer utilities {
+  .swiss-dot-pattern {
+    background-image: radial-gradient(rgba(0, 0, 0, 0.22) 1.25px, transparent 1.25px);
+    background-size: 16px 16px;
+    background-repeat: repeat;
+  }
+  .dark .swiss-dot-pattern {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.45) 1.25px, transparent 1.25px);
+    background-size: 16px 16px;
+    background-repeat: repeat;
+  }
+}

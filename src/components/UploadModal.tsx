@@ -10,19 +10,23 @@ export interface UploadedFile {
   type: DocType;
   uploadDate: string;
   url: string;
+  rawFile?: File;
+  content?: string;
 }
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   courseCode: string;
+  courseId?: string;
   onFilesUploaded: (files: UploadedFile[]) => void;
 }
 
-export default function UploadModal({ isOpen, onClose, courseCode, onFilesUploaded }: UploadModalProps) {
+export default function UploadModal({ isOpen, onClose, courseCode, courseId, onFilesUploaded }: UploadModalProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedType, setSelectedType] = useState<DocType>("Lecture Slide");
   const [stagedFiles, setStagedFiles] = useState<UploadedFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
@@ -38,14 +42,18 @@ export default function UploadModal({ isOpen, onClose, courseCode, onFilesUpload
   const processFiles = (files: FileList | null) => {
     if (!files) return;
     const newFiles: UploadedFile[] = Array.from(files)
-      .filter(file => file.type === 'application/pdf' || file.name.endsWith('.pdf'))
+      .filter(file => {
+        const ext = file.name.toLowerCase().split('.').pop();
+        return ['pdf', 'txt', 'md'].includes(ext || '');
+      })
       .map(file => ({
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         name: file.name,
         size: formatSize(file.size),
         type: selectedType,
         uploadDate: new Date().toISOString(),
-        url: URL.createObjectURL(file)
+        url: URL.createObjectURL(file),
+        rawFile: file
       }));
     if (newFiles.length > 0) setStagedFiles(prev => [...prev, ...newFiles]);
   };
@@ -59,17 +67,54 @@ export default function UploadModal({ isOpen, onClose, courseCode, onFilesUpload
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSubmit = () => {
-    if (stagedFiles.length === 0) return;
-    onFilesUploaded(stagedFiles);
+  const handleSubmit = async () => {
+    if (stagedFiles.length === 0 || isUploading) return;
+    setIsUploading(true);
+
+    const completedFiles: UploadedFile[] = [];
+    const targetCourseId = courseId || 'c1';
+
+    for (const item of stagedFiles) {
+      if (item.rawFile) {
+        try {
+          const formData = new FormData();
+          formData.append('file', item.rawFile);
+          formData.append('course_id', targetCourseId);
+          const res = await fetch('http://localhost:8000/upload-document', {
+            method: 'POST',
+            body: formData
+          });
+          if (res.ok) {
+            const data = await res.json();
+            completedFiles.push({
+              ...item,
+              id: data.id || item.id,
+              content: data.summary || data.content_preview || item.name
+            });
+          } else {
+            completedFiles.push(item);
+          }
+        } catch {
+          completedFiles.push(item);
+        }
+      } else {
+        completedFiles.push(item);
+      }
+    }
+
+    onFilesUploaded(completedFiles);
     setStagedFiles([]);
+    setIsUploading(false);
     onClose();
   };
 
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-white/95 dark:bg-black/95">
-      <div className="w-full max-w-lg p-[1px] rounded-none bg-zinc-200 dark:bg-zinc-800 ">
-        <div className="bg-white dark:bg-black border-none rounded-none flex flex-col overflow-hidden w-full h-full">
+      <div className="w-full max-w-lg border-2 border-black dark:border-white shadow-[8px_8px_0_0_rgba(0,0,0,1)] dark:shadow-[8px_8px_0_0_rgba(255,255,255,1)] bg-white dark:bg-black relative overflow-hidden">
+        {/* Subtle Swiss Dot Grid Pattern */}
+        <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+        <div className="bg-transparent border-none rounded-none flex flex-col overflow-hidden w-full h-full relative z-10">
           <div className="flex items-center justify-between p-6 border-b border-black dark:border-white">
           <div>
             <h2 className="text-sm font-medium text-black dark:text-white">Upload Files</h2>
@@ -102,10 +147,11 @@ export default function UploadModal({ isOpen, onClose, courseCode, onFilesUpload
               isDragging ? 'border-white dark:border-black text-black dark:text-white' : 'border-black dark:border-white text-zinc-600 dark:text-zinc-300 hover:border-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300'
             }`}
           >
-            <input type="file" accept=".pdf,application/pdf" multiple className="hidden" ref={fileInputRef} onChange={handleFileInput} />
+            <input type="file" accept=".pdf,.txt,.md,text/plain,text/markdown,application/pdf" multiple className="hidden" ref={fileInputRef} onChange={handleFileInput} />
             <UploadCloud className="w-6 h-6 mb-4" />
-            <p className="text-xs uppercase tracking-widest">Select or drop PDFs</p>
+            <p className="text-xs uppercase tracking-widest">Select or drop PDFs, TXT, or MD files</p>
           </div>
+
 
           {stagedFiles.length > 0 && (
             <div className="mt-8">
@@ -129,11 +175,12 @@ export default function UploadModal({ isOpen, onClose, courseCode, onFilesUpload
         </div>
 
         <div className="p-6 border-t border-black dark:border-white flex gap-4">
-          <button onClick={onClose} className="flex-1 py-3 text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 uppercase tracking-widest">Cancel</button>
-          <button onClick={handleSubmit} disabled={stagedFiles.length === 0} className="flex-1 py-3 border border-black dark:border-white text-xs text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:hover:bg-white dark:hover:bg-black uppercase tracking-widest transition-colors">
-            Upload
+          <button onClick={onClose} disabled={isUploading} className="flex-1 py-3 text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 uppercase tracking-widest disabled:opacity-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={stagedFiles.length === 0 || isUploading} className="flex-1 py-3 border border-black dark:border-white text-xs text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-900 disabled:opacity-50 disabled:hover:bg-white dark:hover:bg-black uppercase tracking-widest transition-colors font-mono font-bold">
+            {isUploading ? "Uploading & Indexing..." : "Upload"}
           </button>
         </div>
+
       </div>
       </div>
     </div>

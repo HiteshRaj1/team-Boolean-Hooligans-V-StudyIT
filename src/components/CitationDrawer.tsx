@@ -37,9 +37,12 @@ export default function CitationDrawer({ isOpen, onClose, citation }: CitationDr
       />
       
       <div 
-        className={`fixed right-0 top-0 h-full w-96 bg-white dark:bg-black border-l border-black dark:border-white  z-50 transition-transform transform ${isOpen ? 'translate-x-0' : 'translate-x-full'} flex flex-col`}
+        className={`fixed right-0 top-0 h-full w-96 bg-white dark:bg-black border-l border-black dark:border-white z-50 transition-transform transform ${isOpen ? 'translate-x-0' : 'translate-x-full'} flex flex-col relative overflow-hidden`}
       >
-        {/* Header */}
+        {/* Subtle Swiss Dot Grid Pattern */}
+        <div className="absolute inset-0 pointer-events-none swiss-dot-pattern z-0" />
+        <div className="flex flex-col h-full w-full relative z-10">
+          {/* Header */}
         <div className="p-6 border-b border-black dark:border-white flex items-start justify-between">
           <div className="flex gap-3">
             <div className="p-2 bg-zinc-100 dark:bg-zinc-900 rounded-none text-zinc-600 dark:text-zinc-300 shrink-0">
@@ -108,6 +111,7 @@ export default function CitationDrawer({ isOpen, onClose, citation }: CitationDr
           <button className="w-full flex items-center justify-center gap-2 py-3 bg-zinc-100 dark:bg-zinc-900 hover:bg-white dark:hover:bg-black text-black dark:text-white text-sm font-semibold rounded-none transition-colors">
             Jump to Full Document <ExternalLink className="w-4 h-4" />
           </button>
+        </div>
         </div>
       </div>
     </>

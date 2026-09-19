@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Disc } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
 
 const TRACKS = [
   { id: 'brown', name: 'Deep Brown Noise' },
@@ -58,7 +58,7 @@ export default function AudioPlayer() {
 
       const trackId = TRACKS[activeTrackIndex].id;
 
-      if (trackId === 'brown' || trackId === 'pink') {
+      if (trackId === 'brown' || trackId === 'pink' || trackId === 'white') {
         const bufferSize = 2 * ctx.sampleRate;
         const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
         const output = noiseBuffer.getChannelData(0);
@@ -69,11 +69,12 @@ export default function AudioPlayer() {
             output[i] = (lastOut + (0.02 * white)) / 1.02;
             lastOut = output[i];
             output[i] *= 3.5; // compensate gain
-          } else {
-            // pink noise approximation
+          } else if (trackId === 'pink') {
             const b0 = 0.99886 * (lastOut || 0) + white * 0.0555179;
             output[i] = b0;
             lastOut = b0;
+          } else {
+            output[i] = white * 0.5;
           }
         }
         const noiseSource = ctx.createBufferSource();
@@ -83,12 +84,47 @@ export default function AudioPlayer() {
         // Lowpass filter for softness
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = trackId === 'brown' ? 400 : 800;
+        filter.frequency.value = trackId === 'brown' ? 400 : trackId === 'pink' ? 800 : 8000;
         
         noiseSource.connect(filter);
         filter.connect(gainNode);
         noiseSource.start();
         sourceRef.current = noiseSource;
+      } else if (trackId === 'binaural') {
+        const merger = ctx.createChannelMerger(2);
+        
+        const oscLeft = ctx.createOscillator();
+        oscLeft.type = 'sine';
+        oscLeft.frequency.value = 200; // Base carrier frequency
+        
+        const oscRight = ctx.createOscillator();
+        oscRight.type = 'sine';
+        oscRight.frequency.value = 214; // 14Hz difference (Beta waves)
+        
+        oscLeft.connect(merger, 0, 0); // Left channel
+        oscRight.connect(merger, 0, 1); // Right channel
+        
+        // Lower the volume for binaural beats since pure sine waves are loud
+        const localGain = ctx.createGain();
+        localGain.gain.value = 0.3;
+        
+        merger.connect(localGain);
+        localGain.connect(gainNode);
+        
+        oscLeft.start();
+        oscRight.start();
+        
+        sourceRef.current = {
+          disconnect: () => {
+            oscLeft.disconnect();
+            oscRight.disconnect();
+            localGain.disconnect();
+          },
+          stop: () => {
+            oscLeft.stop();
+            oscRight.stop();
+          }
+        } as any;
       } else if (trackId === 'drone') {
         const osc = ctx.createOscillator();
         osc.type = 'sine';
@@ -110,11 +146,8 @@ export default function AudioPlayer() {
         osc2.start();
         
         // Keep ref to one osc to stop it later, but we really need to stop both
-        // So we wrap them in a custom node or just stop the context
-        const merger = ctx.createChannelMerger(1);
-        osc.connect(merger);
-        osc2.connect(merger);
-        merger.disconnect(); // just for ref type matching, we will just use a hack
+        // Safe connection handling
+        // (merger removed to prevent native web audio API crashes on disconnect)
         
         sourceRef.current = {
           disconnect: () => {
@@ -162,31 +195,46 @@ export default function AudioPlayer() {
   const toggleMute = () => setIsMuted(!isMuted);
 
   return (
-    <div className="bg-white dark:bg-black border-t-2 border-black dark:border-white p-4 flex flex-col gap-3 rounded-none">
-      {/* Track Details Row */}
-      <div className="flex items-center gap-3">
-        <div className={`w-8 h-8 bg-white dark:bg-black border border-black dark:border-white flex items-center justify-center shrink-0 ${isPlaying ? 'text-black dark:text-white' : 'text-zinc-500 dark:text-zinc-400'}`}>
-          <Disc className={`w-4 h-4 ${isPlaying ? 'animate-[spin_4s_linear_infinite]' : ''}`} />
-        </div>
-        <div className="flex flex-col min-w-0">
-          <span className="text-xs font-mono font-bold uppercase text-black dark:text-white tracking-widest truncate">{TRACKS[activeTrackIndex].name}</span>
-          <span className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 uppercase tracking-widest truncate">Ambient Engine &bull; {isPlaying ? 'Active' : 'Paused'}</span>
+    <div className="bg-zinc-100 dark:bg-zinc-900 border-t-2 border-black dark:border-white p-4 flex flex-col gap-4 rounded-none">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-mono font-bold tracking-widest uppercase text-black dark:text-white border border-black dark:border-white px-2 py-0.5 bg-white dark:bg-black">[ AUDIO ]</span>
+        <span className={`text-[10px] font-mono font-bold tracking-widest uppercase px-2 py-0.5 transition-colors ${isPlaying ? 'bg-black dark:bg-white text-white dark:text-black' : 'text-zinc-400 dark:text-zinc-500 border border-zinc-300 dark:border-zinc-700'}`}>{isPlaying ? 'ACTIVE' : 'IDLE'}</span>
+      </div>
+
+      <div className="bg-black dark:bg-black border-2 border-black dark:border-white p-3 flex flex-col gap-1 relative overflow-hidden shadow-[inset_0_0_10px_rgba(0,0,0,0.5)]">
+        <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none" style={{ backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.5) 1px, transparent 1px)', backgroundSize: '100% 4px' }} />
+        <span className="text-[#39ff14] font-mono text-[10px] uppercase tracking-widest font-bold">TRK {activeTrackIndex + 1}/{TRACKS.length}</span>
+        <span className="text-[#39ff14] font-mono text-sm uppercase font-bold truncate tracking-widest">{TRACKS[activeTrackIndex].name}</span>
+        
+
+        {/* Equalizer animation */}
+        <div className="flex items-end gap-1 h-3 mt-1 opacity-70">
+          {[...Array(8)].map((_, i) => (
+            <div 
+              key={i} 
+              className="w-1 bg-[#39ff14] transition-all duration-300" 
+              style={{ 
+                height: isPlaying ? ['40%', '80%', '60%', '100%', '50%', '90%', '70%', '30%'][i] : '10%',
+                opacity: isPlaying ? 1 : 0.3
+              }} 
+            />
+          ))}
         </div>
       </div>
 
       {/* Control Bar Row */}
-      <div className="flex items-center justify-between gap-2 mt-1">
-        <div className="flex items-center gap-2">
-          <button onClick={prevTrack} className="p-1.5 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100"><SkipBack className="w-3.5 h-3.5" /></button>
-          <button onClick={togglePlay} className="p-2 border-2 border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 bg-white dark:bg-black p-1 border border-black dark:border-white">
+          <button onClick={prevTrack} className="p-2 bg-transparent text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100"><SkipBack className="w-3.5 h-3.5 fill-current" /></button>
+          <button onClick={togglePlay} className="p-2 bg-black dark:bg-white text-white dark:text-black hover:opacity-80 transition-opacity duration-100">
+            {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
           </button>
-          <button onClick={nextTrack} className="p-1.5 border border-black dark:border-white bg-white dark:bg-black text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100"><SkipForward className="w-3.5 h-3.5" /></button>
+          <button onClick={nextTrack} className="p-2 bg-transparent text-black dark:text-white hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100"><SkipForward className="w-3.5 h-3.5 fill-current" /></button>
         </div>
         
-        <div className="flex items-center gap-2 group flex-1 ml-2 max-w-[80px]">
+        <div className="flex items-center gap-2 group flex-1 ml-4 bg-white dark:bg-black border border-black dark:border-white p-2">
           <button onClick={toggleMute} className="text-black dark:text-white hover:text-zinc-500 dark:hover:text-zinc-400 transition-colors shrink-0">
-            {isMuted || volume === 0 ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+            {isMuted || volume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
           </button>
           <input 
             type="range" 
@@ -198,7 +246,7 @@ export default function AudioPlayer() {
               setVolume(parseFloat(e.target.value));
               if (isMuted) setIsMuted(false);
             }}
-            className="w-full h-1 bg-zinc-200 dark:bg-zinc-800 appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-none [&::-webkit-slider-thumb]:bg-black dark:[&::-webkit-slider-thumb]:bg-white cursor-pointer transition-opacity"
+            className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 appearance-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-none [&::-webkit-slider-thumb]:bg-black dark:[&::-webkit-slider-thumb]:bg-white cursor-pointer"
           />
         </div>
       </div>

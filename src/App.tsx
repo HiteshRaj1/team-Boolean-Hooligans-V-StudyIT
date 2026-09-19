@@ -384,7 +384,7 @@ export default function App() {
   
   const strokeOffset = timerMode === 'work' 
     ? 212.06 - (212.06 * (progressPercentage / 100))
-    : 212.06 * (progressPercentage / 100); 
+    : 212.06 * (progressPercentage / 100);
 
   const miniCircum = 2 * Math.PI * 10;
   const miniStrokeOffset = timerMode === 'work'
@@ -483,8 +483,25 @@ export default function App() {
   const tasksRatio = activeCourseTasks.length > 0 ? tasksCompleted / activeCourseTasks.length : 0;
   const questionsReviewed = activeQuestions.filter(q => q.isReviewed).length;
   const questionsRatio = activeQuestions.length > 0 ? questionsReviewed / activeQuestions.length : 0;
-  const filesRatio = Math.min(activeFilesCount / 5, 1);
-  const readinessScore = Math.round((tasksRatio * 50) + (questionsRatio * 30) + (filesRatio * 20));
+  const filesRatio = activeFilesCount > 0 ? Math.min(activeFilesCount / 5, 1) : 0;
+  
+  let totalWeight = 0;
+  let earnedScore = 0;
+  
+  if (activeCourseTasks.length > 0) {
+    totalWeight += 50;
+    earnedScore += tasksRatio * 50;
+  }
+  if (activeQuestions.length > 0) {
+    totalWeight += 30;
+    earnedScore += questionsRatio * 30;
+  }
+  if (activeFilesCount > 0) {
+    totalWeight += 20;
+    earnedScore += filesRatio * 20;
+  }
+  
+  const readinessScore = totalWeight > 0 ? Math.round((earnedScore / totalWeight) * 100) : 0;
 
   let readinessBadge = { label: 'Critical Revision Required', color: 'text-black dark:text-white bg-white dark:bg-black border-black dark:border-white font-bold' };
   if (readinessScore >= 75) {
@@ -577,16 +594,12 @@ export default function App() {
                     <Timer className="w-4 h-4" />
                     Timer & Tasks
                   </span>
-                  {!(isRightSidebarOpen && rightPanelMode === 'timerAndTasks') ? (
-                    <div className="w-5 h-5 shrink-0 flex items-center justify-center">
-                      <svg className="w-full h-full transform -rotate-90" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="10" className="stroke-zinc-800" strokeWidth="3" fill="transparent" />
-                        <circle cx="12" cy="12" r="10" style={{ stroke: strokeColor }} className="transition-all duration-1000 ease-linear" strokeWidth="3" strokeDasharray={62.83} strokeDashoffset={miniStrokeOffset} strokeLinecap="round" fill="transparent" />
-                      </svg>
-                    </div>
-                  ) : (
-                    <div className="w-5 h-5 shrink-0"></div>
-                  )}
+                  <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 24 24">
+                      <circle cx="12" cy="12" r="10" className={`stroke-zinc-300 ${isRightSidebarOpen && rightPanelMode === 'timerAndTasks' ? 'dark:stroke-zinc-600' : 'dark:stroke-white'} group-hover:stroke-zinc-700 dark:group-hover:stroke-black`} strokeWidth="3" fill="transparent" />
+                      <circle cx="12" cy="12" r="10" style={{ stroke: strokeColor }} className="transition-all duration-1000 ease-linear" strokeWidth="3" strokeDasharray={62.83} strokeDashoffset={miniStrokeOffset} strokeLinecap="round" fill="transparent" />
+                    </svg>
+                  </div>
                 </div>
               </button>
               <button 
@@ -681,7 +694,7 @@ export default function App() {
 
                   <div className="flex-1 max-w-md flex flex-col gap-2 border-l border-black dark:border-white pl-6">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400 font-bold font-mono uppercase tracking-widest">Readiness Index</span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400 font-bold font-mono uppercase tracking-widest">Review Progress</span>
                       <span className={`font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 border ${readinessBadge.color}`}>{readinessBadge.label}</span>
                     </div>
                     <div className="flex items-center gap-3">
@@ -919,7 +932,7 @@ export default function App() {
                         <circle 
                           cx="50" cy="50" r="45" 
                           fill="none" 
-                          className="stroke-zinc-200 dark:stroke-zinc-800" 
+                          className="stroke-zinc-200 dark:stroke-white" 
                           strokeWidth="2" 
                           strokeDasharray="212.06 282.74" 
                         />
@@ -1055,8 +1068,8 @@ export default function App() {
                         </div>
                         
                         <div className="flex flex-col gap-2 mt-4">
-                          <button className="w-full border-2 border-black dark:border-white py-3 font-mono text-[10px] font-bold tracking-widest uppercase hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">
-                            [+ ADD MILESTONE]
+                          <button onClick={openExamEdit} className="w-full border-2 border-black dark:border-white py-3 font-mono text-[10px] font-bold tracking-widest uppercase hover:bg-black dark:hover:bg-white hover:text-white dark:hover:text-black transition-colors duration-100">
+                            [+ SET MILESTONE DATES]
                           </button>
                           <button onClick={() => {
                              setCenterTab('chat');
